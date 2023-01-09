@@ -24,6 +24,8 @@
 #include <deal.II/lac/trilinos_parallel_block_vector.h>
 #include <deal.II/lac/trilinos_precondition.h>
 #include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparsity_pattern.h>
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/matrix_tools.h>
@@ -45,7 +47,7 @@ public:
   {
   public:
     virtual void
-    vector_value(const Point<dim> & /*p*/,
+    vector_value(const Point<dim> & p,
                  Vector<double> &values) const override
     {
       for (unsigned int i = 0; i < dim - 1; ++i)
@@ -246,13 +248,12 @@ public:
   };
 
   // Constructor.
-  NavierStokesSolver(const unsigned int &N_,
+  NavierStokesSolver(
          const unsigned int &degree_velocity_,
          const unsigned int &degree_pressure_)
     : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
     , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
     , pcout(std::cout, mpi_rank == 0)
-    , N(N_)
     , degree_velocity(degree_velocity_)
     , degree_pressure(degree_pressure_)
     , mesh(MPI_COMM_WORLD)
@@ -265,19 +266,23 @@ public:
   // Assemble system. We also assemble the pressure mass matrix (needed for the
   // preconditioner).
   void
-  assemble();
+  assemble_system();
 
-  // Solve system.
-  void
-  solve();
 
   // Output results.
-  void
-  output();
+ /* void
+  output();*/
 
   void run_newton_loop(int cycle);
 
 protected:
+
+
+  void
+  solve();
+
+  void assemble_stokes_system();
+
   // MPI parallel. /////////////////////////////////////////////////////////////
 
   // Number of MPI processes.
@@ -298,15 +303,12 @@ protected:
   const double p_out = 10;
 
   // Forcing term.
-  ForcingTerm forcing_term;
+  ForcingTerm forcing_function;
 
   // Inlet velocity.
   InletVelocity inlet_velocity;
 
   // Discretization. ///////////////////////////////////////////////////////////
-
-  // Mesh refinement.
-  const unsigned int N;
 
   // Polynomial degree used for velocity.
   const unsigned int degree_velocity;
@@ -356,6 +358,11 @@ protected:
 
   // System solution (including ghost elements).
   TrilinosWrappers::MPI::BlockVector solution;
+
+  // System solution (including ghost elements).
+  TrilinosWrappers::MPI::BlockVector previous_newton_step;
+
+  TrilinosWrappers::SparsityPattern sparsity_pattern;
 };
 
 #endif
