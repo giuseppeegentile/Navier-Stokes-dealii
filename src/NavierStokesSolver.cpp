@@ -33,13 +33,50 @@ NavierStokesSolver::setup()
 
   // Initialize the linear system.
   {
-    DynamicSparsityPattern dsp(dof_handler.n_dofs());
-    DoFTools::make_sparsity_pattern(dof_handler, dsp);
-    sparsity_pattern.copy_from(dsp);
+    Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1);
+    for (unsigned int c = 0; c < dim + 1; ++c)
+      {
+        for (unsigned int d = 0; d < dim + 1; ++d)
+          {
+            if (c == dim && d == dim) // pressure-pressure term
+              coupling[c][d] = DoFTools::none;
+            else // other combinations
+              coupling[c][d] = DoFTools::always;
+          }
+      }
 
-    system_matrix.reinit(sparsity_pattern);
-    system_rhs.reinit(dof_handler.n_dofs());
-    solution.reinit(dof_handler.n_dofs());
+    TrilinosWrappers::BlockSparsityPattern sparsity(block_owned_dofs,
+                                                    MPI_COMM_WORLD);
+    DoFTools::make_sparsity_pattern(dof_handler, coupling, sparsity);
+    sparsity.compress();
+
+    // We also build a sparsity pattern for the pressure mass matrix.
+    for (unsigned int c = 0; c < dim + 1; ++c)
+      {
+        for (unsigned int d = 0; d < dim + 1; ++d)
+          {
+            if (c == dim && d == dim) // pressure-pressure term
+              coupling[c][d] = DoFTools::always;
+            else // other combinations
+              coupling[c][d] = DoFTools::none;
+          }
+      }
+    TrilinosWrappers::BlockSparsityPattern sparsity_pressure_mass(
+      block_owned_dofs, MPI_COMM_WORLD);
+    DoFTools::make_sparsity_pattern(dof_handler,
+                                    coupling,
+                                    sparsity_pressure_mass);
+    sparsity_pressure_mass.compress();
+
+    // pcout << "  Initializing the matrices" << std::endl;
+    system_matrix.reinit(sparsity);
+    pressure_mass.reinit(sparsity_pressure_mass);
+
+    // pcout << "  Initializing the system right-hand side" << std::endl;
+    system_rhs.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    // pcout << "  Initializing the solution vector" << std::endl;
+    solution_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    solution.reinit(block_owned_dofs, block_relevant_dofs, MPI_COMM_WORLD);
   }
 }
 
@@ -50,14 +87,14 @@ void NavierStokesSolver::assemble_system() {
     pcout << "Assembling the system" << std::endl;
 
     //clear the system matrix and rhs, because these change every iteration
-    system_matrix.reinit(sparsity_pattern);
+    // system_matrix.reinit(sparsity_pattern);
     system_rhs.reinit(dof_handler.n_dofs());
     const int dofs_per_cell = fe->dofs_per_cell;
     const int n_q_points = quadrature->size();
     const int n_q_points_face = quadrature_face->size();
     std::vector<Tensor<1,dim> > previous_newton_velocity_values (n_q_points);
     std::vector<Tensor< 2, dim> > previous_newton_velocity_gradients (n_q_points);
-    std::vector<Vector<double> > rhs_values (n_q_points, Vector<double>(dim+1));
+    // std::vector<Vector<double> > rhs_values (n_q_points, Vector<double>(dim+1));
     std::vector<Tensor<2,dim> > grad_phi_u(dofs_per_cell);
     std::vector<double> div_phi_u(dofs_per_cell);
     std::vector<double> phi_p(dofs_per_cell);
@@ -82,9 +119,15 @@ void NavierStokesSolver::assemble_system() {
             previous_newton_velocity_values);
         fe_values[velocities].get_function_gradients(previous_newton_step,
             previous_newton_velocity_gradients);
-        forcing_function.vector_value(fe_values.get_quadrature_points(), rhs_values);
+        // forcing_term.vector_value(fe_values.get_quadrature_points(), rhs_values);
         //calculate cell contribution to system
         for (int q = 0; q < n_q_points; q++) {
+          Vector<double> forcing_term_loc(dim);
+          forcing_term.vector_value(fe_values.quadrature_point(q),
+                                    forcing_term_loc);
+          Tensor<1, dim> forcing_term_tensor;
+          for (unsigned int d = 0; d < dim; ++d)
+            forcing_term_tensor[d] = forcing_term_loc[d];
             for (int k=0; k<dofs_per_cell; k++) {
                 grad_phi_u[k] = fe_values[velocities].gradient (k, q);
                 div_phi_u[k] = fe_values[velocities].divergence (k, q);
@@ -94,7 +137,7 @@ void NavierStokesSolver::assemble_system() {
             for (int i = 0; i < dofs_per_cell; i++) {
                 for (int j = 0; j < dofs_per_cell; j++) {
                     cell_matrix(i,j) +=
-                    nu*scalar_product((grad_phi_u[i],grad_phi_u[j])
+                    (nu*scalar_product(grad_phi_u[i],grad_phi_u[j])
                     + phi_u[j]
                     *transpose(
                     previous_newton_velocity_gradients[q])
@@ -106,7 +149,7 @@ void NavierStokesSolver::assemble_system() {
                     *fe_values.JxW(q);
                 }
                 int equation_i = fe->system_to_component_index(i).first;
-                cell_rhs(i) += (fe_values.shape_value(i,q)*rhs_values[q](equation_i) + previous_newton_velocity_values[q] *
+                cell_rhs(i) += (scalar_product(forcing_term_tensor, fe_values[velocities].value(i, q)) + previous_newton_velocity_values[q] *
                                             transpose(previous_newton_velocity_gradients[q])*phi_u[i]) *fe_values.JxW(q);
             }
         }
@@ -192,7 +235,7 @@ void
       for (unsigned int q = 0; q < n_q; ++q)
         {
           Vector<double> forcing_term_loc(dim);
-          forcing_function.vector_value(fe_values.quadrature_point(q),
+          forcing_term.vector_value(fe_values.quadrature_point(q),
                                     forcing_term_loc);
           Tensor<1, dim> forcing_term_tensor;
           for (unsigned int d = 0; d < dim; ++d)

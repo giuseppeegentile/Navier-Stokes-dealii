@@ -303,7 +303,7 @@ protected:
   const double p_out = 10;
 
   // Forcing term.
-  ForcingTerm forcing_function;
+  ForcingTerm forcing_term;
 
   // Inlet velocity.
   InletVelocity inlet_velocity;
@@ -362,7 +362,7 @@ protected:
   // System solution (including ghost elements).
   TrilinosWrappers::MPI::BlockVector previous_newton_step;
 
-  TrilinosWrappers::SparsityPattern sparsity_pattern;
+  // TrilinosWrappers::SparsityPattern sparsity_pattern;
 };
 
 #endif
