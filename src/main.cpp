@@ -21,18 +21,11 @@
 
 // Main function.
 int
-main(int argc, char *argv[])
+main()
 {
-  Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv);
-
-  const unsigned int degree_velocity = 2;
-  const unsigned int degree_pressure = 1;
-
-  Stokes problem(degree_velocity, degree_pressure);
-
-  problem.setup();
-  problem.solve_newton();
-  problem.output();
+  
+      StationaryNavierStokes flow(/* degree = */ 1);
+      flow.run(4);
 
   return 0;
 }
