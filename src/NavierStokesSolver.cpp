@@ -1,18 +1,48 @@
 #include "NavierStokesSolver.hpp"
 
- 
 void StationaryNavierStokes::setup_dofs() {
+  //read mesh
+  {
+
+    GridIn<dim> grid_in;
+    grid_in.attach_triangulation(mesh);
+
+    const std::string mesh_file_name = "../mesh/mesh_poli2.msh";
+    std::ifstream grid_in_file(mesh_file_name);
+    grid_in.read_msh(grid_in_file);
+
+
+     // Write the mesh to file.
+    const std::string ms = "mesh.vtk";
+    GridOut           grid_out;
+    std::ofstream     grid_out_file(ms);
+    grid_out.write_vtk(mesh, grid_out_file);
+    std::cout << "  Mesh saved to " << ms << std::endl;
+    
+        std::cout << "  Number of elements = " << mesh.n_active_cells()
+              << std::endl;
+                  std::cout << "  Degree                     = " << fe.degree << std::endl;
+    std::cout << "  DoFs per cell              = " << fe.dofs_per_cell
+              << std::endl;
+            /*
+
+    GridTools::partition_triangulation(mpi_size, mesh_serial);
+    const auto construction_data = TriangulationDescription::Utilities::
+      create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
+    mesh.create_triangulation(construction_data);*/
+
+  }
   system_matrix.clear();
   pressure_mass_matrix.clear();
 
+  dof_handler.reinit(mesh);
   dof_handler.distribute_dofs(fe);
 
   std::vector<unsigned int> block_component(dim + 1, 0);
   block_component[dim] = 1;
   DoFRenumbering::component_wise(dof_handler, block_component);
 
-  dofs_per_block =
-    DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
+  dofs_per_block = DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
   unsigned int dof_u = dofs_per_block[0];
   unsigned int dof_p = dofs_per_block[1];
 
@@ -42,7 +72,7 @@ void StationaryNavierStokes::setup_dofs() {
   }
   zero_constraints.close();
 
-  std::cout << "Number of active cells: " << triangulation.n_active_cells()
+  std::cout << "Number of active cells: " << mesh.n_active_cells()
             << std::endl
             << "Number of degrees of freedom: " << dof_handler.n_dofs()
             << " (" << dof_u << " + " << dof_p << ')' << std::endl;
@@ -224,7 +254,7 @@ void StationaryNavierStokes::solve(const bool initial_step)
  
 void StationaryNavierStokes::refine_mesh()
 {
-  Vector<float> estimated_error_per_cell(triangulation.n_active_cells());
+  Vector<float> estimated_error_per_cell(mesh.n_active_cells());
   const FEValuesExtractors::Vector velocity(0);
   KellyErrorEstimator<dim>::estimate(
     dof_handler,
@@ -234,15 +264,15 @@ void StationaryNavierStokes::refine_mesh()
     estimated_error_per_cell,
     fe.component_mask(velocity));
 
-  GridRefinement::refine_and_coarsen_fixed_number(triangulation,
+  GridRefinement::refine_and_coarsen_fixed_number(mesh,
                                                   estimated_error_per_cell,
                                                   0.3,
                                                   0.0);
 
-  triangulation.prepare_coarsening_and_refinement();
+  mesh.prepare_coarsening_and_refinement();
   SolutionTransfer<dim, BlockVector<double>> solution_transfer(dof_handler);
   solution_transfer.prepare_for_coarsening_and_refinement(present_solution);
-  triangulation.execute_coarsening_and_refinement();
+  mesh.execute_coarsening_and_refinement();
 
   setup_dofs();
 
@@ -412,8 +442,6 @@ void StationaryNavierStokes::process_solution(unsigned int refinement)
  
 void StationaryNavierStokes::run(const unsigned int refinement)
 {
-  GridGenerator::hyper_cube(triangulation);
-  triangulation.refine_global(5);
 
   const double Re = 1.0 / viscosity;
 

@@ -41,19 +41,23 @@
 
 #include <fstream>
 
+
+/****/
+#include <deal.II/fe/fe_simplex_p.h>
+#include <deal.II/grid/grid_out.h>
+#include <deal.II/grid/tria.h>
+#include <deal.II/grid/grid_in.h>
+
 using namespace dealii;
 static constexpr unsigned int dim = 2;
 
 class StationaryNavierStokes
 {
 public:
-  
   StationaryNavierStokes(const unsigned int degree)  : viscosity(1.0 / 7500.0)
                                                       , gamma(1.0)
                                                       , degree(degree)
-                                                      , triangulation(Triangulation<dim>::maximum_smoothing)
-                                                      , fe(FE_Q<dim>(degree + 1), dim, FE_Q<dim>(degree), 1)
-                                                      , dof_handler(triangulation) {};
+                                                      , fe(FE_SimplexP<dim>(degree + 1), dim, FE_SimplexP<dim>(degree), 1){};
   void run(const unsigned int refinement);
 
 
@@ -65,11 +69,13 @@ protected:
   const unsigned int                   degree;
   std::vector<types::global_dof_index> dofs_per_block;
 
-  Triangulation<dim> triangulation;
+
   FESystem<dim>      fe;
   DoFHandler<dim>    dof_handler;
 
+  //set all boundaries to zero, contranint the updates: never update boundary values -> update vector zero
   AffineConstraints<double> zero_constraints;
+  //dirichlet bcs on the solution vector
   AffineConstraints<double> nonzero_constraints;
 
   BlockSparsityPattern      sparsity_pattern;
@@ -80,6 +86,7 @@ protected:
   BlockVector<double> newton_update;
   BlockVector<double> system_rhs;
   BlockVector<double> evaluation_point;
+  Triangulation<dim> mesh;
 
 
 private:
@@ -111,9 +118,10 @@ private:
 };
 
 
+//set the velocity on the upper surface of the cavity to one, and zero on the other wall
 class BoundaryValues : public Function<dim> {
 public:
-  BoundaryValues() : Function<dim>(dim + 1) {}
+  BoundaryValues() : Function<dim>(dim + 1) {} //we have to set also the pressure even if we don't contraint it
   virtual double value(const Point<dim> & p, const unsigned int component) const override{
     Assert(component < this->n_components, ExcIndexRange(component, 0, this->n_components));
     if (component == 0 && std::abs(p[dim - 1] - 1.0) < 1e-10)
@@ -123,8 +131,15 @@ public:
   }
 };
  
+/*******/
+//rhs function is zero: no rhs function
+/*******/
 
 
+//Schur complement preconditioner decomposed as product of 3 matrices: A^-1 to solve Ax = b, solve this with direct solver for now
+                                                                    //second factor is a simple matrix vector multiplication
+                                                                    //Schur can be approximated by pressure mass and its inverse obtained through an inexact solver
+                                                                                      //since pressure mass is SPD->use CG to solve
 template <class PreconditionerMp>
 class BlockSchurPreconditioner : public Subscriptor {
   public:
