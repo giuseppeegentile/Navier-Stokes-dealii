@@ -7,7 +7,7 @@ void StationaryNavierStokes::setup_dofs() {
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh);
 
-    const std::string mesh_file_name = "../mesh/mesh_poli2.msh";
+    const std::string mesh_file_name = "../mesh/mesh_poli2_t.msh";
     std::ifstream grid_in_file(mesh_file_name);
     grid_in.read_msh(grid_in_file);
 
@@ -19,9 +19,9 @@ void StationaryNavierStokes::setup_dofs() {
     grid_out.write_vtk(mesh, grid_out_file);
     std::cout << "  Mesh saved to " << ms << std::endl;
     
-        std::cout << "  Number of elements = " << mesh.n_active_cells()
-              << std::endl;
-                  std::cout << "  Degree                     = " << fe.degree << std::endl;
+    std::cout << "  Number of elements = " << mesh.n_active_cells()
+             << std::endl;
+    std::cout << "  Degree                     = " << fe.degree << std::endl;
     std::cout << "  DoFs per cell              = " << fe.dofs_per_cell
               << std::endl;
             /*
@@ -94,7 +94,7 @@ void StationaryNavierStokes::initialize_system()
   system_rhs.reinit(dofs_per_block);
 }
 
- 
+//Assembel 
 void StationaryNavierStokes::assemble(const bool initial_step,
                                             const bool assemble_matrix) {
   if (assemble_matrix)
@@ -252,8 +252,7 @@ void StationaryNavierStokes::solve(const bool initial_step)
 }
 
  
-void StationaryNavierStokes::refine_mesh()
-{
+void StationaryNavierStokes::refine_mesh() {
   Vector<float> estimated_error_per_cell(mesh.n_active_cells());
   const FEValuesExtractors::Vector velocity(0);
   KellyErrorEstimator<dim>::estimate(
@@ -291,100 +290,88 @@ void StationaryNavierStokes::newton_iteration(
   const unsigned int max_n_line_searches,
   const unsigned int max_n_refinements,
   const bool         is_initial_step,
-  const bool         output_result)
-{
+  const bool         output_result) {
+    
   bool first_step = is_initial_step;
 
-  for (unsigned int refinement_n = 0; refinement_n < max_n_refinements + 1;
-        ++refinement_n)
-    {
-      unsigned int line_search_n = 0;
-      double       last_res      = 1.0;
-      double       current_res   = 1.0;
-      std::cout << "grid refinements: " << refinement_n << std::endl
-                << "viscosity: " << viscosity << std::endl;
+  for (unsigned int refinement_n = 0; refinement_n < max_n_refinements + 1; ++refinement_n) {
+    unsigned int line_search_n = 0;
+    double       last_res      = 1.0;
+    double       current_res   = 1.0;
+    std::cout << "grid refinements: " << refinement_n << std::endl
+              << "viscosity: " << viscosity << std::endl;
 
-      while ((first_step || (current_res > tolerance)) &&
-              line_search_n < max_n_line_searches)
+    while ((first_step || (current_res > tolerance)) && line_search_n < max_n_line_searches) {
+      if (first_step) {
+        setup_dofs();
+        initialize_system();
+        evaluation_point = present_solution;
+        assemble_system(first_step);
+        solve(first_step);
+        present_solution = newton_update;
+        nonzero_constraints.distribute(present_solution);
+        first_step       = false;
+        evaluation_point = present_solution;
+        assemble_rhs(first_step);
+        current_res = system_rhs.l2_norm();
+        std::cout << "The residual of initial guess is " << current_res
+                  << std::endl;
+        last_res = current_res;
+      }
+      else {
+        evaluation_point = present_solution;
+        assemble_system(first_step);
+        solve(first_step);
+
+        for (double alpha = 1.0; alpha > 1e-5; alpha *= 0.5)
+          {
+            evaluation_point = present_solution;
+            evaluation_point.add(alpha, newton_update);
+            nonzero_constraints.distribute(evaluation_point);
+            assemble_rhs(first_step);
+            current_res = system_rhs.l2_norm();
+            std::cout << "  alpha: " << std::setw(10) << alpha
+                      << std::setw(0) << "  residual: " << current_res
+                      << std::endl;
+            if (current_res < last_res)
+              break;
+          }
         {
-          if (first_step)
-            {
-              setup_dofs();
-              initialize_system();
-              evaluation_point = present_solution;
-              assemble_system(first_step);
-              solve(first_step);
-              present_solution = newton_update;
-              nonzero_constraints.distribute(present_solution);
-              first_step       = false;
-              evaluation_point = present_solution;
-              assemble_rhs(first_step);
-              current_res = system_rhs.l2_norm();
-              std::cout << "The residual of initial guess is " << current_res
-                        << std::endl;
-              last_res = current_res;
-            }
-          else
-            {
-              evaluation_point = present_solution;
-              assemble_system(first_step);
-              solve(first_step);
-
-              for (double alpha = 1.0; alpha > 1e-5; alpha *= 0.5)
-                {
-                  evaluation_point = present_solution;
-                  evaluation_point.add(alpha, newton_update);
-                  nonzero_constraints.distribute(evaluation_point);
-                  assemble_rhs(first_step);
-                  current_res = system_rhs.l2_norm();
-                  std::cout << "  alpha: " << std::setw(10) << alpha
-                            << std::setw(0) << "  residual: " << current_res
-                            << std::endl;
-                  if (current_res < last_res)
-                    break;
-                }
-              {
-                present_solution = evaluation_point;
-                std::cout << "  number of line searches: " << line_search_n
-                          << "  residual: " << current_res << std::endl;
-                last_res = current_res;
-              }
-              ++line_search_n;
-            }
-
-          if (output_result)
-            {
-              output_results(max_n_line_searches * refinement_n +
-                              line_search_n);
-
-              if (current_res <= tolerance)
-                process_solution(refinement_n);
-            }
+          present_solution = evaluation_point;
+          std::cout << "  number of line searches: " << line_search_n
+                    << "  residual: " << current_res << std::endl;
+          last_res = current_res;
         }
+        ++line_search_n;
+      }
 
-      if (refinement_n < max_n_refinements)
-        {
-          refine_mesh();
-        }
+      if (output_result){
+        output_results(max_n_line_searches * refinement_n +
+                        line_search_n);
+
+        if (current_res <= tolerance) process_solution(refinement_n);
+      }
     }
+
+    if (refinement_n < max_n_refinements) {
+      refine_mesh();
+    }
+  }
 }
 
  
-void StationaryNavierStokes::compute_initial_guess(double step_size)
+void StationaryNavierStokes::compute_initial_guess()
 {
   const double target_Re = 1.0 / viscosity;
 
   bool is_initial_step = true;
 
-  for (double Re = 1000.0; Re < target_Re;
-        Re        = std::min(Re + step_size, target_Re))
-    {
-      viscosity = 1.0 / Re;
-      std::cout << "Searching for initial guess with Re = " << Re
-                << std::endl;
-      newton_iteration(1e-12, 50, 0, is_initial_step, false);
-      is_initial_step = false;
-    }
+  for (double Re = 1000.0; Re < target_Re; Re = std::min(Re + step_size, target_Re)) {
+    viscosity = 1.0 / Re;
+    std::cout << "Searching for initial guess with Re = " << Re << std::endl;
+    newton_iteration(1e-12, 50, 0, is_initial_step, false);
+    is_initial_step = false;
+  }
 }
 
  
@@ -445,19 +432,15 @@ void StationaryNavierStokes::run(const unsigned int refinement)
 
   const double Re = 1.0 / viscosity;
 
-  if (Re > 1000.0)
-    {
+  if (Re > re_boundary) {
       std::cout << "Searching for initial guess ..." << std::endl;
-      const double step_size = 2000.0;
-      compute_initial_guess(step_size);
+      compute_initial_guess();
       std::cout << "Found initial guess." << std::endl;
       std::cout << "Computing solution with target Re = " << Re << std::endl;
       viscosity = 1.0 / Re;
       newton_iteration(1e-12, 50, refinement, false, true);
-    }
-  else
-    {
-
+  }
+  else {
       newton_iteration(1e-12, 50, refinement, true, true);
-    }
+  }
 }

@@ -50,7 +50,8 @@
 
 using namespace dealii;
 static constexpr unsigned int dim = 2;
-
+static constexpr double re_boundary = 1000.0;
+static constexpr double step_size = 2000.0;
 class StationaryNavierStokes
 {
 public:
@@ -62,7 +63,7 @@ public:
 
 
 protected:
-  void compute_initial_guess(double step_size);
+  void compute_initial_guess();
 
   double                               viscosity;
   double                               gamma;
