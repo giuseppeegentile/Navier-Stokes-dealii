@@ -52,13 +52,17 @@ using namespace dealii;
 static constexpr unsigned int dim = 2;
 static constexpr double re_boundary = 1000.0;
 static constexpr double step_size = 2000.0;
+static constexpr double tol = 1e-6;
+static constexpr int max_line = 15;
+
 class StationaryNavierStokes
 {
 public:
   StationaryNavierStokes(const unsigned int degree)  : viscosity(1.0 / 7500.0)
                                                       , gamma(1.0)
                                                       , degree(degree)
-                                                      , fe(FE_SimplexP<dim>(degree + 1), dim, FE_SimplexP<dim>(degree), 1){};
+                                                      , fe(FE_SimplexP<dim>(degree + 1), dim, FE_SimplexP<dim>(degree), 1)
+                                                      , quadrature_formula(degree + 2){};
   void run(const unsigned int refinement);
 
 
@@ -88,6 +92,8 @@ protected:
   BlockVector<double> system_rhs;
   BlockVector<double> evaluation_point;
   Triangulation<dim> mesh;
+
+  QGauss<dim> quadrature_formula;
 
 
 private:
