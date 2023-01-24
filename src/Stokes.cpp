@@ -151,7 +151,7 @@ Stokes::setup()
     pressure_mass.reinit(sparsity_pressure_mass);
 
     pcout << "  Initializing the system right-hand side" << std::endl;
-    system_rhs.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    residual_vector.reinit(locally_owned_dofs, MPI_COMM_WORLD);
     pcout << "  Initializing the solution vector" << std::endl;
     solution_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
     delta_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
@@ -187,7 +187,6 @@ Stokes::assemble()
   std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
 
   system_matrix = 0.0;
-  system_rhs    = 0.0;
   pressure_mass = 0.0;
   residual_vector = 0.0;
   FEValuesExtractors::Vector velocity(0);
@@ -224,20 +223,32 @@ Stokes::assemble()
         for (unsigned int i = 0; i < dofs_per_cell; ++i) {
             for (unsigned int j = 0; j < dofs_per_cell; ++j) {
                 cell_matrix(i, j) +=
-                  (nu *
-                      scalar_product(fe_values[velocity].gradient(j, q), fe_values[velocity].gradient(i, q)) +
-                    present_velocity_gradients[q] * fe_values[velocity].value(j, q) * fe_values[velocity].value(i, q) +
+                  nu * scalar_product(fe_values[velocity].gradient(j, q), 
+                      fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
+
+                cell_matrix(i, j) +=  present_velocity_gradients[q] * fe_values[velocity].value(j, q) * 
+                                      fe_values[velocity].value(i, q) * fe_values.JxW(q) * fe_values.JxW(q);
+
+                cell_matrix(i, j) += 
                     fe_values[velocity].gradient(j, q) * present_velocity_values[q] *
-                      fe_values[velocity].value(i, q) -
-                    fe_values[velocity].divergence(i, q) * fe_values[pressure].value(j, q) - fe_values[pressure].value(i, q) * fe_values[velocity].divergence(j, q)+
-                    ro * fe_values[velocity].divergence(j, q)* fe_values[velocity].divergence(i, q) +
-                    fe_values[pressure].value(i, q)* fe_values[pressure].value(j, q)) *
-                  fe_values.JxW(q);
+                      fe_values[velocity].value(i, q) * fe_values.JxW(q);
+
+                cell_matrix(i, j) -=
+                    fe_values[velocity].divergence(i, q) * fe_values[pressure].value(j, q)* fe_values.JxW(q);
+
+                cell_matrix(i, j) -= 
+                    fe_values[pressure].value(i, q) * fe_values[velocity].divergence(j, q) * fe_values.JxW(q);
+
+                cell_matrix(i, j) +=
+                    ro * fe_values[velocity].divergence(j, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+
+                cell_pressure_mass_matrix(i, j) += 
+                    fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);
               }
               
  
             double present_velocity_divergence = trace(present_velocity_gradients[q]);
-            cell_residual(i) -=(-nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) -
+            cell_residual(i) += (-nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) -
                present_velocity_gradients[q] * present_velocity_values[q] * fe_values[velocity].value(i, q) +
                present_pressure_values[q] * fe_values[velocity].divergence(i, q) +
                present_velocity_divergence * fe_values[pressure].value(i, q) -
@@ -247,7 +258,7 @@ Stokes::assemble()
       }
 
       // Boundary integral for Neumann BCs.
-      /*if (cell->at_boundary())
+      if (cell->at_boundary())
         {
           for (unsigned int f = 0; f < cell->n_faces(); ++f)
             {
@@ -263,14 +274,13 @@ Stokes::assemble()
                           cell_residual(i) +=
                             -p_out *
                             scalar_product(fe_face_values.normal_vector(q),
-                                           fe_face_values[velocity].value(i,
-                                                                          q)) *
+                                           fe_face_values[velocity].value(i, q)) *
                             fe_face_values.JxW(q);
                         }
                     }
                 }
             }
-        }*/
+        }
 
       cell->get_dof_indices(dof_indices);
 
@@ -308,7 +318,7 @@ Stokes::assemble()
                                                {true, true, true, false}));
 
     MatrixTools::apply_boundary_values(
-      boundary_values, system_matrix, delta_owned, system_rhs, false);
+      boundary_values, system_matrix, delta_owned, residual_vector, false);
   }
 }
 
@@ -317,7 +327,7 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(2000, 1e-6 * system_rhs.l2_norm());
+  SolverControl solver_control(2000, 1e-6 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -331,9 +341,32 @@ Stokes::solve()
                             system_matrix.block(1, 0));
 
   pcout << "Solving the linear system" << std::endl;
-  solver.solve(system_matrix, delta_owned, system_rhs, preconditioner);
+  solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);
   pcout << "  " << solver_control.last_step() << " GMRES iterations"
         << std::endl;
+
+
+  /*AffineConstraints<double> zero_constraints;
+  SolverControl solver_control(system_matrix.m(),
+                                1e-4 * residual_vector.l2_norm(),
+                                true);
+
+  SolverFGMRES<BlockVector<double>> gmres(solver_control);
+  SparseILU<double>                 pmass_preconditioner;
+  pmass_preconditioner.initialize(pressure_mass,
+                                  SparseILU<double>::AdditionalData());
+
+  const BlockSchurPreconditioner<SparseILU<double>> preconditioner(
+    ro,
+    nu,
+    system_matrix,
+    pressure_mass,
+    pmass_preconditioner);
+
+  gmres.solve(system_matrix, delta_owned, residual_vector, pmass_preconditioner);
+  std::cout << "FGMRES steps: " << solver_control.last_step() << std::endl;
+
+  zero_constraints.distribute(delta_owned);*/
 }
 
 void

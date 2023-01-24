@@ -29,11 +29,19 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
+ 
+#include <deal.II/lac/sparse_direct.h>
+ 
+#include <deal.II/lac/sparse_ilu.h>
+#include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/solver_gmres.h>
+
 #include <fstream>
 #include <iostream>
 
 using namespace dealii;
-
+  
 // Class implementing a solver for the Stokes problem.
 class Stokes
 {
@@ -103,68 +111,51 @@ public:
   protected:
     const double alpha = 1.0;
   };
-
-  // Since we're working with block matrices, we need to make our own
-  // preconditioner class. A preconditioner class can be any class that exposes
-  // a vmult method that applies the inverse of the preconditioner.
-
-  // Identity preconditioner.
-  class PreconditionIdentity
+/*
+ template <class PreconditionerMp>
+  class BlockSchurPreconditioner : public Subscriptor
   {
   public:
-    // Application of the preconditioner: we just copy the input vector (src)
-    // into the output vector (dst).
-    void
-    vmult(TrilinosWrappers::MPI::BlockVector &      dst,
-          const TrilinosWrappers::MPI::BlockVector &src) const
-    {
-      dst = src;
+    BlockSchurPreconditioner(
+        double                           gamma,
+        double                           viscosity,
+        const BlockSparseMatrix<double> &S,
+        const SparseMatrix<double> &     P,
+        const PreconditionerMp &         Mppreconditioner)
+        : gamma(gamma)
+        , viscosity(viscosity)
+        , stokes_matrix(S)
+        , pressure_mass_matrix(P)
+        , mp_preconditioner(Mppreconditioner)
+      {
+        A_inverse.initialize(stokes_matrix.block(0, 0));
+      }
+ 
+    void vmult(BlockVector<double> &dst, const BlockVector<double> &src) const{
+    Vector<double> utmp(src.block(0));
+        SolverControl solver_control(1000, 1e-6 * src.block(1).l2_norm());
+        SolverCG<Vector<double>> cg(solver_control);
+        dst.block(1) = 0.0;
+        cg.solve(pressure_mass_matrix,
+                dst.block(1),
+                src.block(1),
+                mp_preconditioner);
+        dst.block(1) *= -(viscosity + gamma);
+        stokes_matrix.block(0, 1).vmult(utmp, dst.block(1));
+        utmp *= -1.0;
+        utmp += src.block(0);
+
+        A_inverse.vmult(dst.block(0), utmp);
     }
-
-  protected:
-  };
-
-  // Block-diagonal preconditioner.
-  class PreconditionBlockDiagonal
-  {
-  public:
-    // Initialize the preconditioner, given the velocity stiffness matrix, the
-    // pressure mass matrix.
-    void
-    initialize(const TrilinosWrappers::SparseMatrix &velocity_stiffness_,
-               const TrilinosWrappers::SparseMatrix &pressure_mass_)
-    {
-      velocity_stiffness = &velocity_stiffness_;
-      pressure_mass      = &pressure_mass_;
-
-      preconditioner_velocity.initialize(velocity_stiffness_);
-      preconditioner_pressure.initialize(pressure_mass_);
-    }
-
-    // Application of the preconditioner.
-    void
-    vmult(TrilinosWrappers::MPI::BlockVector &      dst,
-          const TrilinosWrappers::MPI::BlockVector &src) const
-    {
-      SolverControl                           solver_control_velocity(1000,
-                                            1e-2 * src.block(0).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
-        solver_control_velocity);
-      solver_cg_velocity.solve(*velocity_stiffness,
-                               dst.block(0),
-                               src.block(0),
-                               preconditioner_velocity);
-
-      SolverControl                           solver_control_pressure(1000,
-                                            1e-2 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
-        solver_control_pressure);
-      solver_cg_pressure.solve(*pressure_mass,
-                               dst.block(1),
-                               src.block(1),
-                               preconditioner_pressure);
-    }
-
+ 
+  private:
+    const double                     gamma;
+    const double                     viscosity;
+    const BlockSparseMatrix<double> &stokes_matrix;
+    const SparseMatrix<double> &     pressure_mass_matrix;
+    const PreconditionerMp &         mp_preconditioner;
+    SparseDirectUMFPACK              A_inverse;
+ 
   protected:
     // Velocity stiffness matrix.
     const TrilinosWrappers::SparseMatrix *velocity_stiffness;
@@ -178,7 +169,7 @@ public:
     // Preconditioner used for the pressure block.
     TrilinosWrappers::PreconditionILU preconditioner_pressure;
   };
-
+*/
   // Block-triangular preconditioner.
   class PreconditionBlockTriangular
   {
@@ -352,8 +343,6 @@ protected:
   // convenience, but in practice we only look at the pressure-pressure block.
   TrilinosWrappers::BlockSparseMatrix pressure_mass;
 
-  // Right-hand side vector in the linear system.
-  TrilinosWrappers::MPI::BlockVector system_rhs;
 
   // System solution (without ghost elements).
   TrilinosWrappers::MPI::BlockVector solution_owned;
