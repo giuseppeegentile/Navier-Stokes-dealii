@@ -367,8 +367,8 @@
 
 // #endif
 
-#ifndef STOKES_HPP
-#define STOKES_HPP
+#ifndef NAVIERSTOKES_HPP
+#define NAVIERSTOKES_HPP
 
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -404,7 +404,7 @@
 using namespace dealii;
 
 // Class implementing a solver for the Stokes problem.
-class NavierrStokesSolver
+class NavierStokesSolver
 {
 public:
   // Physical dimension (1D, 2D, 3D)
@@ -662,7 +662,10 @@ protected:
   // Problem definition. ///////////////////////////////////////////////////////
 
   // Kinematic viscosity [m2/s].
-  const double nu = 1;
+  const double nu = 0.001;
+
+  // Fluid density [kg/m3]
+  const double rho = 1.0;
 
   // Outlet pressure [Pa].
   const double p_out = 10;
@@ -732,6 +735,9 @@ protected:
 
   // System solution (including ghost elements).
   TrilinosWrappers::MPI::BlockVector solution;
+
+  // System solution at previous time step.
+  TrilinosWrappers::MPI::BlockVector solution_old;
 };
 
 #endif
