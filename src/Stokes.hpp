@@ -111,7 +111,8 @@ public:
   protected:
     const double alpha = 1.0;
   };
-/*
+
+
  template <class PreconditionerMp>
   class BlockSchurPreconditioner : public Subscriptor
   {
@@ -169,9 +170,11 @@ public:
     // Preconditioner used for the pressure block.
     TrilinosWrappers::PreconditionILU preconditioner_pressure;
   };
-*/
+
+
+
   // Block-triangular preconditioner.
-  class PreconditionBlockTriangular
+  class PreconditionBlockTriangular: public Subscriptor
   {
   public:
     // Initialize the preconditioner, given the velocity stiffness matrix, the
@@ -357,7 +360,7 @@ protected:
   TrilinosWrappers::MPI::BlockVector delta_owned;
 
   // Residual vector.
-  TrilinosWrappers::MPI::Vector residual_vector;
+  TrilinosWrappers::MPI::BlockVector residual_vector;
 };
 
 #endif

@@ -151,7 +151,7 @@ Stokes::setup()
     pressure_mass.reinit(sparsity_pressure_mass);
 
     pcout << "  Initializing the system right-hand side" << std::endl;
-    residual_vector.reinit(locally_owned_dofs, MPI_COMM_WORLD);
+    residual_vector.reinit(block_owned_dofs, MPI_COMM_WORLD);
     pcout << "  Initializing the solution vector" << std::endl;
     solution_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
     delta_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
@@ -353,14 +353,14 @@ Stokes::solve()
 
   SolverFGMRES<BlockVector<double>> gmres(solver_control);
   SparseILU<double>                 pmass_preconditioner;
-  pmass_preconditioner.initialize(pressure_mass,
+  pmass_preconditioner.initialize(pressure_mass.block(1, 1),
                                   SparseILU<double>::AdditionalData());
 
   const BlockSchurPreconditioner<SparseILU<double>> preconditioner(
     ro,
     nu,
     system_matrix,
-    pressure_mass,
+    pressure_mass.block(1, 1),
     pmass_preconditioner);
 
   gmres.solve(system_matrix, delta_owned, residual_vector, pmass_preconditioner);
