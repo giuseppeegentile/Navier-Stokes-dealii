@@ -408,7 +408,7 @@ class NavierStokesSolver
 {
 public:
   // Physical dimension (1D, 2D, 3D)
-  static constexpr unsigned int dim = 3;
+  static constexpr unsigned int dim = 2;
 
   // Function for the forcing term.
   class ForcingTerm : public Function<dim>
@@ -616,12 +616,15 @@ public:
   };
 
   // Constructor.
-  Stokes(const unsigned int &N_,
-         const unsigned int &degree_velocity_,
-         const unsigned int &degree_pressure_)
+  NavierStokesSolver(const unsigned int &degree_velocity_,
+                     const unsigned int &degree_pressure_,
+                     const double &T_,
+                     const double &deltat_)
     : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
     , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
     , pcout(std::cout, mpi_rank == 0)
+    , T(T_)
+    , deltat(deltat_)
     , degree_velocity(degree_velocity_)
     , degree_pressure(degree_pressure_)
     , mesh(MPI_COMM_WORLD)
@@ -631,13 +634,9 @@ public:
   void
   setup();
 
-  // Solve the problem using Newton's method.
+  // Solve the problem.
   void
-  solve_newton();
-
-  // Output results.
-  void
-  output();
+  solve();
 
 protected:
   // Assemble the tangent problem.
@@ -647,6 +646,22 @@ protected:
   // Solve the tangent problem.
   void
   solve_system();
+
+  // Assemble the Stokes problem for the initial guess.
+  void
+  assemble_stokes_system();
+
+  // Solve the Stokes problem for the initial guess.
+  void
+  solve_stokes_system();
+
+  // Solve the problem for one time step using Newton's method.
+  void
+  solve_newton();
+
+  // Output results.
+  void
+  output(const unsigned int &time_step, const double &time) const;
 
   // MPI parallel. /////////////////////////////////////////////////////////////
 
@@ -662,9 +677,9 @@ protected:
   // Problem definition. ///////////////////////////////////////////////////////
 
   // Kinematic viscosity [m2/s].
-  const double nu = 0.001;
+  const double nu = 0.01;
 
-  // Fluid density [kg/m3]
+  // Fluid density [kg/m3].
   const double rho = 1.0;
 
   // Outlet pressure [Pa].
@@ -676,6 +691,12 @@ protected:
   // Inlet velocity.
   InletVelocity inlet_velocity;
 
+  // Current time.
+  double time;
+
+  // Final time.
+  const double T;
+
   // Discretization. ///////////////////////////////////////////////////////////
 
   // Polynomial degree used for velocity.
@@ -683,6 +704,9 @@ protected:
 
   // Polynomial degree used for pressure.
   const unsigned int degree_pressure;
+
+  // Time step.
+  const double deltat;
 
   // Mesh.
   parallel::fullydistributed::Triangulation<dim> mesh;
@@ -717,15 +741,19 @@ protected:
   // Residual vector.
   TrilinosWrappers::MPI::BlockVector residual_vector;
 
-  // Stokes System matrix.
-  TrilinosWrappers::BlockSparseMatrix stokes_system_matrix;
-
   // Pressure mass matrix, needed for preconditioning. We use a block matrix for
   // convenience, but in practice we only look at the pressure-pressure block.
   TrilinosWrappers::BlockSparseMatrix pressure_mass;
 
-  // Right-hand side vector in the linear system.
+  // Stokes System matrix.
+  TrilinosWrappers::BlockSparseMatrix stokes_system_matrix;
+
+  // Right-hand side vector in the Stokes system.
   TrilinosWrappers::MPI::BlockVector stokes_system_rhs;
+
+  // Pressure mass matrix, needed for preconditioning the Stokes system. We use a block matrix for
+  // convenience, but in practice we only look at the pressure-pressure block.
+  TrilinosWrappers::BlockSparseMatrix stokes_pressure_mass;
 
   // Solution increment (without ghost elements).
   TrilinosWrappers::MPI::BlockVector delta_owned;

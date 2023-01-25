@@ -3,5 +3,5 @@ project(lab01 LANGUAGES CXX C)
 
 include(../common/cmake-common.cmake)
 
-add_executable(proj src/main.cpp src/NavierStokesSolver.cpp)
-deal_ii_setup_target(proj)
+add_executable(navierstokes src/main.cpp src/NavierStokesSolver.cpp)
+deal_ii_setup_target(navierstokes)
