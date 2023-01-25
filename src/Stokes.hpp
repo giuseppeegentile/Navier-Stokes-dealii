@@ -114,8 +114,8 @@ public:
     virtual void
     vector_value(const Point<dim> &p, Vector<double> &values) const override
     {
-      //values[0] = -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
-    values[0] = 0.0;
+      values[0] = -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
+    //values[0] = 0.0;
       for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
     }
@@ -123,9 +123,9 @@ public:
     virtual double
     value(const Point<dim> &p, const unsigned int component = 0) const override
     {
-      /*if (component == 0)
+      if (component == 0)
         return -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
-      else*/
+      else
         return 0.0;
     }
 
@@ -221,7 +221,7 @@ public:
     vmult(TrilinosWrappers::MPI::BlockVector &      dst,
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
-      SolverControl                           solver_control_velocity(1000,
+      SolverControl                           solver_control_velocity(2000,
                                             1e-2 * src.block(0).l2_norm());
       SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
@@ -234,7 +234,7 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      SolverControl                           solver_control_pressure(1000,
+      SolverControl                           solver_control_pressure(2000,
                                             1e-2 * src.block(1).l2_norm());
       SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
@@ -289,6 +289,11 @@ public:
   // Solve system.
   void
   solve();
+
+
+  void solve_stokes_system();
+
+  void assemble_stokes_system();
 
   // Output results.
   void
@@ -385,6 +390,17 @@ protected:
 
   // Residual vector.
   TrilinosWrappers::MPI::BlockVector residual_vector;
+
+
+    // Stokes System matrix.
+  TrilinosWrappers::BlockSparseMatrix stokes_system_matrix;
+
+  // Right-hand side vector in the Stokes system.
+  TrilinosWrappers::MPI::BlockVector stokes_system_rhs;
+
+  // Pressure mass matrix, needed for preconditioning the Stokes system. We use a block matrix for
+  // convenience, but in practice we only look at the pressure-pressure block.
+  TrilinosWrappers::BlockSparseMatrix stokes_pressure_mass;
 };
 
 #endif

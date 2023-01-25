@@ -145,10 +145,13 @@ Stokes::setup()
 
     pcout << "  Initializing the matrices" << std::endl;
     system_matrix.reinit(sparsity);
+     stokes_system_matrix.reinit(sparsity);
     pressure_mass.reinit(sparsity_pressure_mass); /*******/
+    stokes_pressure_mass.reinit(sparsity_pressure_mass);
 
     pcout << "  Initializing the system right-hand side" << std::endl;
     residual_vector.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    stokes_system_rhs.reinit(block_owned_dofs, MPI_COMM_WORLD);
     pcout << "  Initializing the solution vector" << std::endl;
     solution_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
     delta_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
@@ -337,7 +340,8 @@ Stokes::assemble()
 
     boundary_functions.clear();
     Functions::ZeroFunction<dim> zero_function(dim + 1);
-    boundary_functions[1] = &zero_function;
+    for(int i = 0; i < dim; i++)
+      boundary_functions[i] =&zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -354,7 +358,7 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(2000, 1e-6 * residual_vector.l2_norm());
+  SolverControl solver_control(5000, 1e-6 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -465,10 +469,208 @@ Stokes::output()
 }
 
 
+
+
+void
+Stokes::assemble_stokes_system()
+{
+  pcout << "===============================================" << std::endl;
+  pcout << "Assembling the Stokes system" << std::endl;
+
+  const unsigned int dofs_per_cell = fe->dofs_per_cell;
+  const unsigned int n_q           = quadrature->size();
+  const unsigned int n_q_face      = quadrature_face->size();
+
+  FEValues<dim>     fe_values(*fe,
+                          *quadrature,
+                          update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+  FEFaceValues<dim> fe_face_values(*fe,
+                                   *quadrature_face,
+                                   update_values | update_normal_vectors |
+                                     update_JxW_values);
+
+  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_pressure_mass_matrix(dofs_per_cell, dofs_per_cell);
+  Vector<double>     cell_rhs(dofs_per_cell);
+
+  std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
+
+  stokes_system_matrix = 0.0;
+  stokes_system_rhs    = 0.0;
+  stokes_pressure_mass = 0.0;
+
+  FEValuesExtractors::Vector velocity(0);
+  FEValuesExtractors::Scalar pressure(dim);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      fe_values.reinit(cell);
+
+      cell_matrix               = 0.0;
+      cell_rhs                  = 0.0;
+      cell_pressure_mass_matrix = 0.0;
+
+      for (unsigned int q = 0; q < n_q; ++q)
+        {
+          Vector<double> forcing_term_loc(dim);
+          forcing_term.vector_value(fe_values.quadrature_point(q),
+                                    forcing_term_loc);
+          Tensor<1, dim> forcing_term_tensor;
+          for (unsigned int d = 0; d < dim; ++d)
+            forcing_term_tensor[d] = forcing_term_loc[d];
+
+          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            {
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                {
+                  // Viscosity term.
+                  cell_matrix(i, j) +=
+                    nu *
+                    scalar_product(fe_values[velocity].gradient(i, q),
+                                   fe_values[velocity].gradient(j, q)) *
+                    fe_values.JxW(q);
+
+                  // Pressure term in the momentum equation.
+                  cell_matrix(i, j) -= fe_values[velocity].divergence(i, q) *
+                                       fe_values[pressure].value(j, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure term in the continuity equation.
+                  cell_matrix(i, j) -= fe_values[velocity].divergence(j, q) *
+                                       fe_values[pressure].value(i, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure mass matrix.
+                  cell_pressure_mass_matrix(i, j) +=
+                    fe_values[pressure].value(i, q) *
+                    fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);
+                }
+
+              // Forcing term.
+              cell_rhs(i) += scalar_product(forcing_term_tensor,
+                                            fe_values[velocity].value(i, q)) *
+                             fe_values.JxW(q);
+            }
+        }
+
+      // Boundary integral for Neumann BCs.
+      if (cell->at_boundary())
+        {
+          for (unsigned int f = 0; f < cell->n_faces(); ++f)
+            {
+              if (cell->face(f)->at_boundary() &&
+                  cell->face(f)->boundary_id() == 2)
+                {
+                  fe_face_values.reinit(cell, f);
+
+                  for (unsigned int q = 0; q < n_q_face; ++q)
+                    {
+                      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                        {
+                          cell_rhs(i) +=
+                            -p_out *
+                            scalar_product(fe_face_values.normal_vector(q),
+                                           fe_face_values[velocity].value(i,
+                                                                          q)) *
+                            fe_face_values.JxW(q);
+                        }
+                    }
+                }
+            }
+        }
+
+      cell->get_dof_indices(dof_indices);
+
+      stokes_system_matrix.add(dof_indices, cell_matrix);
+      stokes_system_rhs.add(dof_indices, cell_rhs);
+      stokes_pressure_mass.add(dof_indices, cell_pressure_mass_matrix);
+    }
+
+  stokes_system_matrix.compress(VectorOperation::add);
+  stokes_system_rhs.compress(VectorOperation::add);
+  stokes_pressure_mass.compress(VectorOperation::add);
+
+  // Dirichlet boundary conditions.
+  {
+    std::map<types::global_dof_index, double>           boundary_values;
+    std::map<types::boundary_id, const Function<dim> *> boundary_functions;
+
+    // We interpolate first the inlet velocity condition alone, then the wall
+    // condition alone, so that the latter "win" over the former where the two
+    // boundaries touch.
+    boundary_functions[0] = &inlet_velocity;
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             boundary_functions,
+                                             boundary_values,
+                                             ComponentMask(
+                                               {true, true, true, false}));
+
+    boundary_functions.clear();
+    Functions::ZeroFunction<dim> zero_function(dim + 1);
+    boundary_functions[2] = &zero_function;
+    boundary_functions[3] = &zero_function;
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             boundary_functions,
+                                             boundary_values,
+                                             ComponentMask(
+                                               {true, true,  true,false}));
+
+    MatrixTools::apply_boundary_values(
+      boundary_values, stokes_system_matrix, solution, stokes_system_rhs, false);
+  }
+}
+
+void
+Stokes::solve_stokes_system()
+{
+  pcout << "===============================================" << std::endl;
+
+  SolverControl solver_control(2000, 1e-6 * stokes_system_rhs.l2_norm());
+
+  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+
+  // PreconditionBlockDiagonal preconditioner;
+  // preconditioner.initialize(system_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1));
+
+  PreconditionBlockTriangular preconditioner;
+  preconditioner.initialize(stokes_system_matrix.block(0, 0),
+                            stokes_pressure_mass.block(1, 1),
+                            stokes_system_matrix.block(1, 0));
+
+  pcout << "Solving the Stokes system" << std::endl;
+  solver.solve(stokes_system_matrix, solution_owned, stokes_system_rhs, preconditioner);
+  pcout << "  " << solver_control.last_step() << " GMRES iterations"
+        << std::endl;
+
+  solution = solution_owned;
+}
+
+
+
+
+
+
 void
 Stokes::solve_newton()
 {
   pcout << "===============================================" << std::endl;
+
+  
+
+  // Search the initial condition (small Reynold's number).
+  {
+    pcout << "Searching the initial condition" << std::endl;
+
+    assemble_stokes_system();
+    solve_stokes_system();
+
+    pcout << "-----------------------------------------------" << std::endl;
+  }
 
   const unsigned int n_max_iters        = 1000;
   const double       residual_tolerance = 1e-6;
