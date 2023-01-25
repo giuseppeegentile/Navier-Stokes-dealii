@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/mesh-square-h0.100000.msh");
+    std::ifstream grid_in_file("../mesh/mesh-square-h0.050000.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -252,14 +252,14 @@ NavierStokesSolver::assemble_system()
                                        fe_values.JxW(q);
 
                   cell_matrix(i, j) += rho *
-                                       present_velocity_gradients[q] *
+                                       transpose(present_velocity_gradients[q]) *
                                        fe_values[velocity].value(j, q) *
                                        fe_values[velocity].value(i, q) *
                                        fe_values.JxW(q);
 
                   cell_matrix(i, j) += rho *
                                        present_velocity_values[q] *
-                                       fe_values[velocity].gradient(j, q) *
+                                       transpose(fe_values[velocity].gradient(j, q)) *
                                        fe_values[velocity].value(i, q) *
                                        fe_values.JxW(q);
 
@@ -291,7 +291,7 @@ NavierStokesSolver::assemble_system()
 
               cell_residual(i) -= rho *
                                   present_velocity_values[q] *
-                                  present_velocity_gradients[q] *
+                                  transpose(present_velocity_gradients[q]) *
                                   fe_values[velocity].value(i, q) *
                                   fe_values.JxW(q);
 
@@ -312,7 +312,7 @@ NavierStokesSolver::assemble_system()
           for (unsigned int f = 0; f < cell->n_faces(); ++f)
             {
               if (cell->face(f)->at_boundary() &&
-                  cell->face(f)->boundary_id() == 2)
+                  cell->face(f)->boundary_id() == 1)
                 {
                   fe_face_values.reinit(cell, f);
 
@@ -622,7 +622,7 @@ NavierStokesSolver::assemble_stokes_system()
           for (unsigned int f = 0; f < cell->n_faces(); ++f)
             {
               if (cell->face(f)->at_boundary() &&
-                  cell->face(f)->boundary_id() == 2)
+                  cell->face(f)->boundary_id() == 1)
                 {
                   fe_face_values.reinit(cell, f);
 
@@ -707,6 +707,8 @@ NavierStokesSolver::solve_stokes_system()
         << std::endl;
 
   solution = solution_owned;
+
+  output(0., 0.);
 }
 
 void
@@ -718,14 +720,17 @@ NavierStokesSolver::solve_system()
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
+  PreconditionIdentity preconditioner;
+
   // PreconditionBlockDiagonal preconditioner;
-  // preconditioner.initialize(system_matrix.block(0, 0),
+  // preconditioner.initialize(jacobian_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1));
 
-  PreconditionBlockTriangular preconditioner;
-  preconditioner.initialize(jacobian_matrix.block(0, 0),
-                            pressure_mass.block(1, 1),
-                            jacobian_matrix.block(1, 0));
+
+  // PreconditionBlockTriangular preconditioner;
+  // preconditioner.initialize(jacobian_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1),
+  //                           jacobian_matrix.block(1, 0));
 
   pcout << "Solving system..." << std::endl;
   solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 

@@ -454,7 +454,7 @@ public:
     virtual void
     vector_value(const Point<dim> &p, Vector<double> &values) const override
     {
-      values[0] = -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
+      values[0] = 1. /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
 
       for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
@@ -464,7 +464,7 @@ public:
     value(const Point<dim> &p, const unsigned int component = 0) const override
     {
       if (component == 0)
-        return -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
+        return 1. /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
       else
         return 0.0;
     }
@@ -516,8 +516,8 @@ public:
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
       SolverControl                           solver_control_velocity(1000,
-                                            1e-2 * src.block(0).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
+                                            1e-6 * src.block(0).l2_norm());
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
       solver_cg_velocity.solve(*velocity_stiffness,
                                dst.block(0),
@@ -525,8 +525,8 @@ public:
                                preconditioner_velocity);
 
       SolverControl                           solver_control_pressure(1000,
-                                            1e-2 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
+                                            1e-6 * src.block(1).l2_norm());
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
       solver_cg_pressure.solve(*pressure_mass,
                                dst.block(1),
@@ -572,9 +572,9 @@ public:
     vmult(TrilinosWrappers::MPI::BlockVector &      dst,
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
-      SolverControl                           solver_control_velocity(1000,
-                                            1e-2 * src.block(0).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
+      SolverControl                           solver_control_velocity(2000,
+                                            1e-4 * src.block(0).l2_norm());
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
       solver_cg_velocity.solve(*velocity_stiffness,
                                dst.block(0),
@@ -585,7 +585,7 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      SolverControl                           solver_control_pressure(1000,
+      SolverControl                           solver_control_pressure(2000,
                                             1e-2 * src.block(1).l2_norm());
       SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
