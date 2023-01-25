@@ -272,10 +272,13 @@ Stokes::assemble()
             double present_velocity_divergence = trace(present_velocity_gradients[q]);
               cell_residual(i) += nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
               cell_residual(i) += ro * present_velocity_values[q] * present_velocity_gradients[q] * fe_values[velocity].value(i, q) * fe_values.JxW(q);
-              cell_residual(i) -= ro * present_velocity_divergence * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
-              cell_residual(i) += scalar_product(forcing_term_tensor,
+              cell_residual(i) -= present_pressure_values[q] * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+              cell_residual(i) -= scalar_product(forcing_term_tensor,
                                             fe_values[velocity].value(i, q)) *
                              fe_values.JxW(q);
+              /*cell_residual(i) -= fe_values[pressure].value(i, q) *
+                                  present_velocity_divergence *
+                                  fe_values.JxW(q);                           */
  /*
             
             cell_residual(i) += (-nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) -
