@@ -1,6 +1,30 @@
 #ifndef STOKES_HPP
 #define STOKES_HPP
 
+
+#include <deal.II/base/function.h>
+#include <deal.II/base/utilities.h>
+#include <deal.II/base/tensor.h>
+ #include <deal.II/lac/block_vector.h>
+
+#include <deal.II/lac/full_matrix.h>
+#include <deal.II/lac/block_sparse_matrix.h>
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
+#include <deal.II/lac/solver_cg.h>
+#include <deal.II/lac/precondition.h>
+ #include <deal.II/lac/trilinos_solver.h>
+#include <deal.II/grid/tria.h>
+#include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_refinement.h>
+#include <deal.II/grid/grid_tools.h>
+ 
+
+#include <deal.II/numerics/error_estimator.h>
+ 
+#include <deal.II/numerics/solution_transfer.h>
+ 
+ 
+/**********************************/
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/quadrature_lib.h>
 
@@ -18,8 +42,6 @@
 
 #include <deal.II/grid/grid_in.h>
 
-#include <deal.II/lac/solver_cg.h>
-#include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/trilinos_block_sparse_matrix.h>
 #include <deal.II/lac/trilinos_parallel_block_vector.h>
 #include <deal.II/lac/trilinos_precondition.h>
@@ -34,7 +56,6 @@
  
 #include <deal.II/lac/sparse_ilu.h>
 #include <deal.II/lac/affine_constraints.h>
-#include <deal.II/lac/solver_cg.h>
 #include <deal.II/lac/solver_gmres.h>
 
 #include <fstream>
@@ -93,8 +114,8 @@ public:
     virtual void
     vector_value(const Point<dim> &p, Vector<double> &values) const override
     {
-      values[0] = -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
-
+      //values[0] = -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
+    values[0] = 0.0;
       for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
     }
@@ -102,9 +123,9 @@ public:
     virtual double
     value(const Point<dim> &p, const unsigned int component = 0) const override
     {
-      if (component == 0)
+      /*if (component == 0)
         return -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]);
-      else
+      else*/
         return 0.0;
     }
 
@@ -120,61 +141,64 @@ public:
     BlockSchurPreconditioner(
         double                           gamma,
         double                           viscosity,
-        const BlockSparseMatrix<double> &S,
-        const SparseMatrix<double> &     P,
+        const TrilinosWrappers::BlockSparseMatrix &S,
+        const TrilinosWrappers::SparseMatrix &     P,
         const PreconditionerMp &         Mppreconditioner)
         : gamma(gamma)
         , viscosity(viscosity)
         , stokes_matrix(S)
         , pressure_mass_matrix(P)
-        , mp_preconditioner(Mppreconditioner)
+        ,  mp_preconditioner(Mppreconditioner)
       {
-        A_inverse.initialize(stokes_matrix.block(0, 0));
+        //TrilinosWrappers::SparseMatrix spm = (stokes_matrix.block(0, 0));
+        /*A_inverse.initialize(spm);*/
+        direct_solver.initialize(stokes_matrix.block(0, 0));
       }
  
-    void vmult(BlockVector<double> &dst, const BlockVector<double> &src) const{
-    Vector<double> utmp(src.block(0));
+    void vmult(TrilinosWrappers::MPI::BlockVector &dst, const TrilinosWrappers::MPI::BlockVector &src) const{
+        TrilinosWrappers::MPI::Vector utmp(src.block(0));
         SolverControl solver_control(1000, 1e-6 * src.block(1).l2_norm());
-        SolverCG<Vector<double>> cg(solver_control);
+        SolverCG<TrilinosWrappers::MPI::Vector> cg(solver_control);
         dst.block(1) = 0.0;
         cg.solve(pressure_mass_matrix,
                 dst.block(1),
                 src.block(1),
                 mp_preconditioner);
+
         dst.block(1) *= -(viscosity + gamma);
         stokes_matrix.block(0, 1).vmult(utmp, dst.block(1));
         utmp *= -1.0;
         utmp += src.block(0);
+        SolverControl sc(1000, utmp.l2_norm() * 1e-4);
+        SolverGMRES<TrilinosWrappers::MPI::Vector> gmres(sc);
+        gmres.solve(
+          stokes_matrix.block(0, 0),
+          dst.block(0),utmp, PreconditionIdentity()
+        );
 
-        A_inverse.vmult(dst.block(0), utmp);
+        //direct_solver.solve(dst.block(0),utmp );
+
+        /*Vector<double> copy(dst.block(0));
+        Vector<double> copy2(utmp);
+
+        A_inverse.vmult(copy, copy2);
+        dst.block(0) = copy;*/
     }
  
   private:
     const double                     gamma;
     const double                     viscosity;
-    const BlockSparseMatrix<double> &stokes_matrix;
-    const SparseMatrix<double> &     pressure_mass_matrix;
+    const TrilinosWrappers::BlockSparseMatrix &stokes_matrix;
+    const TrilinosWrappers::SparseMatrix &     pressure_mass_matrix;
     const PreconditionerMp &         mp_preconditioner;
     SparseDirectUMFPACK              A_inverse;
- 
-  protected:
-    // Velocity stiffness matrix.
-    const TrilinosWrappers::SparseMatrix *velocity_stiffness;
-
-    // Preconditioner used for the velocity block.
-    TrilinosWrappers::PreconditionILU preconditioner_velocity;
-
-    // Pressure mass matrix.
-    const TrilinosWrappers::SparseMatrix *pressure_mass;
-
-    // Preconditioner used for the pressure block.
-    TrilinosWrappers::PreconditionILU preconditioner_pressure;
+    TrilinosWrappers::SolverDirect direct_solver;
   };
 
 
 
   // Block-triangular preconditioner.
-  class PreconditionBlockTriangular: public Subscriptor
+  class PreconditionBlockTriangular
   {
   public:
     // Initialize the preconditioner, given the velocity stiffness matrix, the

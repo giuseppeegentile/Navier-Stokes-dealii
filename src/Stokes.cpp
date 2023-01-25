@@ -139,16 +139,13 @@ Stokes::setup()
               coupling[c][d] = DoFTools::none;
           }
       }
-    TrilinosWrappers::BlockSparsityPattern sparsity_pressure_mass(
-      block_owned_dofs, MPI_COMM_WORLD);
-    DoFTools::make_sparsity_pattern(dof_handler,
-                                    coupling,
-                                    sparsity_pressure_mass);
+    TrilinosWrappers::BlockSparsityPattern sparsity_pressure_mass(block_owned_dofs, MPI_COMM_WORLD);
+    DoFTools::make_sparsity_pattern(dof_handler, sparsity_pressure_mass);
     sparsity_pressure_mass.compress();
 
     pcout << "  Initializing the matrices" << std::endl;
     system_matrix.reinit(sparsity);
-    pressure_mass.reinit(sparsity_pressure_mass);
+    pressure_mass.reinit(sparsity_pressure_mass); /*******/
 
     pcout << "  Initializing the system right-hand side" << std::endl;
     residual_vector.reinit(block_owned_dofs, MPI_COMM_WORLD);
@@ -208,7 +205,7 @@ Stokes::assemble()
   
       cell_matrix = 0;
       cell_residual    = 0;
-  
+        cell_pressure_mass_matrix = 0.0;
       fe_values[velocity].get_function_values(solution,
                                                 present_velocity_values);
   
@@ -219,15 +216,21 @@ Stokes::assemble()
                                               present_pressure_values);
 
       for (unsigned int q = 0; q < n_q; ++q) {
- 
+           Vector<double> forcing_term_loc(dim);
+          forcing_term.vector_value(fe_values.quadrature_point(q),
+                                    forcing_term_loc);
+          Tensor<1, dim> forcing_term_tensor;
+          for (unsigned int d = 0; d < dim; ++d)
+            forcing_term_tensor[d] = forcing_term_loc[d];
+
         for (unsigned int i = 0; i < dofs_per_cell; ++i) {
             for (unsigned int j = 0; j < dofs_per_cell; ++j) {
-                cell_matrix(i, j) +=
+                /*cell_matrix(i, j) +=
                   nu * scalar_product(fe_values[velocity].gradient(j, q), 
                       fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
 
                 cell_matrix(i, j) +=  present_velocity_gradients[q] * fe_values[velocity].value(j, q) * 
-                                      fe_values[velocity].value(i, q) * fe_values.JxW(q) * fe_values.JxW(q);
+                                      fe_values[velocity].value(i, q) * fe_values.JxW(q);
 
                 cell_matrix(i, j) += 
                     fe_values[velocity].gradient(j, q) * present_velocity_values[q] *
@@ -243,17 +246,41 @@ Stokes::assemble()
                     ro * fe_values[velocity].divergence(j, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
 
                 cell_pressure_mass_matrix(i, j) += 
-                    fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);
+                    fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);*/
+                    cell_matrix(i, j) +=
+                  nu * scalar_product(fe_values[velocity].gradient(j, q), 
+                      fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
+
+
+                  cell_matrix(i, j) +=
+                  ro * present_velocity_values[q] * fe_values[velocity].gradient(j, q) *
+                      fe_values[velocity].value(i, q) * fe_values.JxW(q);
+
+                  cell_matrix(i, j) +=
+                  ro * present_velocity_gradients[q] * fe_values[velocity].value(j, q) * 
+                      fe_values[velocity].value(i, q) * fe_values.JxW(q);
+
+                      cell_matrix(i, j) +=
+                  fe_values[pressure].value(i, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+
+                      cell_pressure_mass_matrix(i, j) += 
+                    fe_values[pressure].value(j, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
               }
-              
- 
             double present_velocity_divergence = trace(present_velocity_gradients[q]);
+              cell_residual(i) += nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
+              cell_residual(i) += ro * present_velocity_values[q] * present_velocity_gradients[q] * fe_values[velocity].value(i, q) * fe_values.JxW(q);
+              cell_residual(i) -= ro * present_velocity_divergence * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+              cell_residual(i) += scalar_product(forcing_term_tensor,
+                                            fe_values[velocity].value(i, q)) *
+                             fe_values.JxW(q);
+ /*
+            
             cell_residual(i) += (-nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) -
                present_velocity_gradients[q] * present_velocity_values[q] * fe_values[velocity].value(i, q) +
                present_pressure_values[q] * fe_values[velocity].divergence(i, q) +
                present_velocity_divergence * fe_values[pressure].value(i, q) -
                ro * present_velocity_divergence * fe_values[velocity].divergence(i, q)) *
-              fe_values.JxW(q);
+              fe_values.JxW(q);*/
           }
       }
 
@@ -344,29 +371,48 @@ Stokes::solve()
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);
   pcout << "  " << solver_control.last_step() << " GMRES iterations"
         << std::endl;
+/*
 
-
-  /*AffineConstraints<double> zero_constraints;
-  SolverControl solver_control(system_matrix.m(),
-                                1e-4 * residual_vector.l2_norm(),
-                                true);
-
-  SolverFGMRES<BlockVector<double>> gmres(solver_control);
+  SolverControl solver_control(2000,
+                               1e-4 * residual_vector.l2_norm(),
+                               true);
+                                
+  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> gmres(solver_control);
   SparseILU<double>                 pmass_preconditioner;
-  pmass_preconditioner.initialize(pressure_mass.block(1, 1),
+  TrilinosWrappers::PreconditionILU pmass_p;
+  pmass_p.initialize(pressure_mass);
+  const Epetra_CrsMatrix &epetra_mat = pressure_mass.trilinos_matrix();
+   SparseMatrix<double> cp;
+  SparsityPattern sp(epetra_mat.NumGlobalRows(), epetra_mat.NumGlobalCols(),epetra_mat.MaxNumEntries());
+  cp.reinit(sp);
+  for(int i=0; i<epetra_mat.NumGlobalRows(); i++){
+      int numEntries;
+      int *indices;
+      double *values;
+      epetra_mat.ExtractGlobalRowView(i, numEntries, values, indices);
+      for(int j=0; j<numEntries; j++){
+          cp.set(i,indices[j],values[j]);
+      }
+  }
+  
+
+
+  //cp.copy_from(pressure_mass);
+  pmass_preconditioner.initialize(cp,
                                   SparseILU<double>::AdditionalData());
 
-  const BlockSchurPreconditioner<SparseILU<double>> preconditioner(
+  const BlockSchurPreconditioner<TrilinosWrappers::PreconditionILU> preconditioner(
     ro,
     nu,
     system_matrix,
-    pressure_mass.block(1, 1),
-    pmass_preconditioner);
+    pressure_mass,
+    pmass_p);
 
-  gmres.solve(system_matrix, delta_owned, residual_vector, pmass_preconditioner);
+  gmres.solve(system_matrix, delta_owned, residual_vector, preconditioner);
   std::cout << "FGMRES steps: " << solver_control.last_step() << std::endl;
 
-  zero_constraints.distribute(delta_owned);*/
+  //zero_constraints.distribute(delta_owned);
+  */
 }
 
 void
