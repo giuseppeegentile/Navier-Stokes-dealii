@@ -3,5 +3,5 @@ project(lab01 LANGUAGES CXX C)
 add_compile_options(-g)
 include(common/cmake-common.cmake)
 
-add_executable(lab-09 src/lab-09.cpp src/Stokes.cpp)
-deal_ii_setup_target(lab-09)
+add_executable(main src/main.cpp src/NavStokes.cpp)
+deal_ii_setup_target(main)
