@@ -129,6 +129,30 @@ tut/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/tut.dir/build.make CMakeFiles/tut.dir/build
 .PHONY : tut/fast
 
+src/NavierStokesSolver.o: src/NavierStokesSolver.cpp.o
+.PHONY : src/NavierStokesSolver.o
+
+# target to build an object file
+src/NavierStokesSolver.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/tut.dir/build.make CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.o
+.PHONY : src/NavierStokesSolver.cpp.o
+
+src/NavierStokesSolver.i: src/NavierStokesSolver.cpp.i
+.PHONY : src/NavierStokesSolver.i
+
+# target to preprocess a source file
+src/NavierStokesSolver.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/tut.dir/build.make CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.i
+.PHONY : src/NavierStokesSolver.cpp.i
+
+src/NavierStokesSolver.s: src/NavierStokesSolver.cpp.s
+.PHONY : src/NavierStokesSolver.s
+
+# target to generate assembly for a file
+src/NavierStokesSolver.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/tut.dir/build.make CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.s
+.PHONY : src/NavierStokesSolver.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -162,6 +186,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... tut"
+	@echo "... src/NavierStokesSolver.o"
+	@echo "... src/NavierStokesSolver.i"
+	@echo "... src/NavierStokesSolver.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

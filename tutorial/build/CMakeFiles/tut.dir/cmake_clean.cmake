@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.o"
+  "CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.o.d"
   "CMakeFiles/tut.dir/src/main.cpp.o"
   "CMakeFiles/tut.dir/src/main.cpp.o.d"
   "tut"

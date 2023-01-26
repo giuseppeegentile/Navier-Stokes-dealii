@@ -1,6 +1,7 @@
 CMakeFiles/tut.dir/src/main.cpp.o: \
  /home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial/src/main.cpp \
  /u/sw/toolchains/gcc-glibc/11.2.0/prefix/include/stdc-predef.h \
+ /home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial/src/NavierStokesSolver.hpp \
  /u/sw/toolchains/gcc-glibc/11.2.0/pkgs/dealii/9.3.1/include/deal.II/base/quadrature_lib.h \
  /u/sw/toolchains/gcc-glibc/11.2.0/pkgs/dealii/9.3.1/include/deal.II/base/config.h \
  /u/sw/toolchains/gcc-glibc/11.2.0/base/include/mpi.h \

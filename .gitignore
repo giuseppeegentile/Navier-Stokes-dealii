@@ -1,2 +1,6 @@
 /build
+tutorial/build
+tutorial/build/
+tutorial/build/CMakeFiles
+tutorial/build/CMakeFiles/tut.dir
 .vscode/

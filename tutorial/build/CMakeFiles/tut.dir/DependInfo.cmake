@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial/src/NavierStokesSolver.cpp" "CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.o" "gcc" "CMakeFiles/tut.dir/src/NavierStokesSolver.cpp.o.d"
   "/home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial/src/main.cpp" "CMakeFiles/tut.dir/src/main.cpp.o" "gcc" "CMakeFiles/tut.dir/src/main.cpp.o.d"
   )
 

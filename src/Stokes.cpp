@@ -117,7 +117,7 @@ Stokes::setup()
         for (unsigned int d = 0; d < dim + 1; ++d)
           {
             if (c == dim && d == dim) // pressure-pressure term
-              coupling[c][d] = DoFTools::none;
+              coupling[c][d] = DoFTools::nonzero;
             else // other combinations
               coupling[c][d] = DoFTools::always;
           }
@@ -140,7 +140,7 @@ Stokes::setup()
           }
       }
     TrilinosWrappers::BlockSparsityPattern sparsity_pressure_mass(block_owned_dofs, MPI_COMM_WORLD);
-    DoFTools::make_sparsity_pattern(dof_handler, sparsity_pressure_mass);
+    DoFTools::make_sparsity_pattern(dof_handler, coupling, sparsity_pressure_mass);
     sparsity_pressure_mass.compress();
 
     pcout << "  Initializing the matrices" << std::endl;
@@ -208,7 +208,8 @@ Stokes::assemble()
   
       cell_matrix = 0;
       cell_residual    = 0;
-        cell_pressure_mass_matrix = 0.0;
+      cell_pressure_mass_matrix = 0.0;
+
       fe_values[velocity].get_function_values(solution,
                                                 present_velocity_values);
   
@@ -227,66 +228,74 @@ Stokes::assemble()
             forcing_term_tensor[d] = forcing_term_loc[d];
 
         for (unsigned int i = 0; i < dofs_per_cell; ++i) {
+                  for (unsigned int k = 0; k < dofs_per_cell; ++k)
+          {
+            div_phi_u[k]  = fe_values[velocity].divergence(k, q);
+            grad_phi_u[k] = fe_values[velocity].gradient(k, q);
+            phi_u[k]      = fe_values[velocity].value(k, q);
+            phi_p[k]      = fe_values[pressure].value(k, q);
+          }
+
             for (unsigned int j = 0; j < dofs_per_cell; ++j) {
-                /*cell_matrix(i, j) +=
-                  nu * scalar_product(fe_values[velocity].gradient(j, q), 
-                      fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
-
-                cell_matrix(i, j) +=  present_velocity_gradients[q] * fe_values[velocity].value(j, q) * 
-                                      fe_values[velocity].value(i, q) * fe_values.JxW(q);
-
-                cell_matrix(i, j) += 
-                    fe_values[velocity].gradient(j, q) * present_velocity_values[q] *
-                      fe_values[velocity].value(i, q) * fe_values.JxW(q);
-
-                cell_matrix(i, j) -=
-                    fe_values[velocity].divergence(i, q) * fe_values[pressure].value(j, q)* fe_values.JxW(q);
-
-                cell_matrix(i, j) -= 
-                    fe_values[pressure].value(i, q) * fe_values[velocity].divergence(j, q) * fe_values.JxW(q);
-
-                cell_matrix(i, j) +=
-                    ro * fe_values[velocity].divergence(j, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+                cell_matrix(i, j) += nu * scalar_product(fe_values[velocity].gradient(j, q), fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
+                cell_matrix(i, j) += (present_velocity_gradients[q] * fe_values[velocity].value(j, q) * fe_values[velocity].value(i, q)) * fe_values.JxW(q);
+                cell_matrix(i, j) +=fe_values[velocity].gradient(j, q) * present_velocity_values[q] *  fe_values[velocity].value(i, q) * fe_values.JxW(q);
+                cell_matrix(i, j) -=fe_values[velocity].divergence(i, q)*  fe_values[pressure].value(j, q) * fe_values.JxW(q);
+                cell_matrix(i, j) -= fe_values[pressure].value(i, q) *  fe_values[velocity].divergence(j, q)* fe_values.JxW(q);
+                 cell_matrix(i, j) += ro *fe_values[velocity].divergence(j, q)*fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+                cell_matrix(i, j) +=  fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) * fe_values.JxW(q);
 
                 cell_pressure_mass_matrix(i, j) += 
-                    fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);*/
-                    cell_matrix(i, j) +=
+                    fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);
+                   /*cell_matrix(i, j) +=
                   nu * scalar_product(fe_values[velocity].gradient(j, q), 
                       fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
 
 
                   cell_matrix(i, j) +=
-                  ro * present_velocity_values[q] * fe_values[velocity].gradient(j, q) *
+                  present_velocity_values[q] * fe_values[velocity].gradient(j, q) *
                       fe_values[velocity].value(i, q) * fe_values.JxW(q);
 
                   cell_matrix(i, j) +=
-                  ro * present_velocity_gradients[q] * fe_values[velocity].value(j, q) * 
+                  present_velocity_gradients[q] * fe_values[velocity].value(j, q) * 
                       fe_values[velocity].value(i, q) * fe_values.JxW(q);
 
-                      cell_matrix(i, j) +=
-                  fe_values[pressure].value(i, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+                      cell_matrix(i, j) -=
+                  fe_values[pressure].value(j, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+
+                      cell_matrix(i, j) -=
+                  fe_values[pressure].value(i, q) * fe_values[velocity].divergence(j, q) * fe_values.JxW(q);
+
+                      cell_matrix(i, j) += ro *
+                  fe_values[velocity].divergence(i, q) * fe_values[velocity].divergence(j, q) * fe_values.JxW(q);
 
                       cell_pressure_mass_matrix(i, j) += 
-                    fe_values[pressure].value(j, q) * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
+                    fe_values[pressure].value(i, q) * fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);*/
               }
             double present_velocity_divergence = trace(present_velocity_gradients[q]);
-              cell_residual(i) += nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
-              cell_residual(i) += ro * present_velocity_values[q] * present_velocity_gradients[q] * fe_values[velocity].value(i, q) * fe_values.JxW(q);
+              /*cell_residual(i) += nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) * fe_values.JxW(q);
+              cell_residual(i) += ro *present_velocity_divergence * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
               cell_residual(i) -= present_pressure_values[q] * fe_values[velocity].divergence(i, q) * fe_values.JxW(q);
-              cell_residual(i) -= scalar_product(forcing_term_tensor,
+              cell_residual(i) += present_velocity_gradients[q] * present_velocity_values[q] * fe_values[velocity].value(i, q) * fe_values.JxW(q);
+              cell_residual(i) -= present_velocity_divergence * fe_values[pressure].value(i, q) * fe_values.JxW(q);
+
+
+              cell_residual(i) += scalar_product(forcing_term_tensor,
                                             fe_values[velocity].value(i, q)) *
                              fe_values.JxW(q);
-              /*cell_residual(i) -= fe_values[pressure].value(i, q) *
+              cell_residual(i) -= fe_values[pressure].value(i, q) *
                                   present_velocity_divergence *
                                   fe_values.JxW(q);                           */
- /*
+ 
             
-            cell_residual(i) += (-nu * scalar_product(present_velocity_gradients[q], fe_values[velocity].gradient(i, q)) -
-               present_velocity_gradients[q] * present_velocity_values[q] * fe_values[velocity].value(i, q) +
-               present_pressure_values[q] * fe_values[velocity].divergence(i, q) +
-               present_velocity_divergence * fe_values[pressure].value(i, q) -
-               ro * present_velocity_divergence * fe_values[velocity].divergence(i, q)) *
-              fe_values.JxW(q);*/
+            cell_residual(i) -= (-nu * scalar_product(present_velocity_gradients[q],
+                                           grad_phi_u[i]) -
+               present_velocity_gradients[q] * present_velocity_values[q] *
+                 phi_u[i] +
+               present_pressure_values[q] * div_phi_u[i] +
+               present_velocity_divergence * phi_p[i] -
+               ro * present_velocity_divergence * div_phi_u[i]) *
+              fe_values.JxW(q);
           }
       }
 
@@ -614,8 +623,7 @@ Stokes::assemble_stokes_system()
 
     boundary_functions.clear();
     Functions::ZeroFunction<dim> zero_function(dim + 1);
-    boundary_functions[2] = &zero_function;
-    boundary_functions[3] = &zero_function;
+    boundary_functions[1] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -651,10 +659,57 @@ Stokes::solve_stokes_system()
         << std::endl;
 
   solution = solution_owned;
+
+
+  pcout << "===============================================" << std::endl;
+
+  DataOut<dim> data_out;
+
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    data_component_interpretation(
+      dim, DataComponentInterpretation::component_is_part_of_vector);
+  data_component_interpretation.push_back(
+    DataComponentInterpretation::component_is_scalar);
+  std::vector<std::string> names = {"velocity",
+                                    "velocity",
+                                    "velocity",
+                                    "pressure"};
+
+  data_out.add_data_vector(dof_handler,
+                           solution,
+                           names,
+                           data_component_interpretation);
+
+  std::vector<unsigned int> partition_int(mesh.n_active_cells());
+  GridTools::get_subdomain_association(mesh, partition_int);
+  const Vector<double> partitioning(partition_int.begin(), partition_int.end());
+  data_out.add_data_vector(partitioning, "partitioning");
+
+  data_out.build_patches();
+
+  const std::string output_file_name = "output-stokes";
+
+  DataOutBase::DataOutFilter data_filter(
+    DataOutBase::DataOutFilterFlags(/*filter_duplicate_vertices = */ false,
+                                    /*xdmf_hdf5_output = */ true));
+  data_out.write_filtered_data(data_filter);
+  data_out.write_hdf5_parallel(data_filter,
+                               output_file_name + ".h5",
+                               MPI_COMM_WORLD);
+
+  std::vector<XDMFEntry> xdmf_entries({data_out.create_xdmf_entry(
+    data_filter, output_file_name + ".h5", 0, MPI_COMM_WORLD)});
+  data_out.write_xdmf_file(xdmf_entries,
+                           output_file_name + ".xdmf",
+                           MPI_COMM_WORLD);
+
+  pcout << "Output written to " << output_file_name << std::endl;
+  pcout << "===============================================" << std::endl;
+
+
+
+
 }
-
-
-
 
 
 
@@ -675,7 +730,7 @@ Stokes::solve_newton()
     pcout << "-----------------------------------------------" << std::endl;
   }
 
-  const unsigned int n_max_iters        = 1000;
+  const unsigned int n_max_iters        = 20;
   const double       residual_tolerance = 1e-6;
 
   unsigned int n_iter        = 0;
@@ -698,6 +753,9 @@ Stokes::solve_newton()
 
           solution_owned += delta_owned;
           solution = solution_owned;
+         // solution_owned = 0.0;
+          delta_owned = 0.0;
+
         }
       else
         {

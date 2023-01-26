@@ -146,7 +146,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=lab01
+CMAKE_PROJECT_NAME:STATIC=tut
 
 //Path to a program.
 CMAKE_RANLIB:FILEPATH=/u/sw/toolchains/gcc-glibc/11.2.0/prefix/bin/ranlib
@@ -301,6 +301,12 @@ lab01_BINARY_DIR:STATIC=/home/jellyfish/shared-folder/dealii-Stokes/Navier-Stoke
 
 //Value Computed by CMake
 lab01_SOURCE_DIR:STATIC=/home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial
+
+//Value Computed by CMake
+tut_BINARY_DIR:STATIC=/home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial/build
+
+//Value Computed by CMake
+tut_SOURCE_DIR:STATIC=/home/jellyfish/shared-folder/dealii-Stokes/Navier-Stokes-dealii/tutorial
 
 
 ########################
