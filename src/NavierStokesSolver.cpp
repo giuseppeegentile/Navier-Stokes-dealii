@@ -1,446 +1,834 @@
 #include "NavierStokesSolver.hpp"
 
-void StationaryNavierStokes::setup_dofs() {
-  //read mesh
+void
+NavierStokesSolver::setup()
+{
+  // Create the mesh.
   {
+    pcout << "Initializing the mesh" << std::endl;
+
+    Triangulation<dim> mesh_serial;
 
     GridIn<dim> grid_in;
-    grid_in.attach_triangulation(mesh);
+    grid_in.attach_triangulation(mesh_serial);
 
-    const std::string mesh_file_name = "../mesh/mesh_poli2_t.msh";
-    std::ifstream grid_in_file(mesh_file_name);
+    std::ifstream grid_in_file("../mesh/correct_mesh_yt.msh");
     grid_in.read_msh(grid_in_file);
-
-
-     // Write the mesh to file.
-    const std::string ms = "mesh.vtk";
-    GridOut           grid_out;
-    std::ofstream     grid_out_file(ms);
-    grid_out.write_vtk(mesh, grid_out_file);
-    std::cout << "  Mesh saved to " << ms << std::endl;
-    
-    std::cout << "  Number of elements = " << mesh.n_active_cells()
-             << std::endl;
-    std::cout << "  Degree                     = " << fe.degree << std::endl;
-    std::cout << "  DoFs per cell              = " << fe.dofs_per_cell
-              << std::endl;
-            /*
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
     const auto construction_data = TriangulationDescription::Utilities::
       create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
-    mesh.create_triangulation(construction_data);*/
+    mesh.create_triangulation(construction_data);
 
+    pcout << "  Number of elements = " << mesh.n_global_active_cells()
+          << std::endl;
   }
-  system_matrix.clear();
-  pressure_mass_matrix.clear();
 
-  dof_handler.reinit(mesh);
-  dof_handler.distribute_dofs(fe);
+  pcout << "-----------------------------------------------" << std::endl;
 
-  std::vector<unsigned int> block_component(dim + 1, 0);
-  block_component[dim] = 1;
-  DoFRenumbering::component_wise(dof_handler, block_component);
-
-  dofs_per_block = DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
-  unsigned int dof_u = dofs_per_block[0];
-  unsigned int dof_p = dofs_per_block[1];
-
-  const FEValuesExtractors::Vector velocities(0);
+  // Initialize the finite element space.
   {
-    nonzero_constraints.clear();
+    pcout << "Initializing the finite element space" << std::endl;
 
-    DoFTools::make_hanging_node_constraints(dof_handler, nonzero_constraints);
-    VectorTools::interpolate_boundary_values(dof_handler,
-                                              0,
-                                              BoundaryValues(),
-                                              nonzero_constraints,
-                                              fe.component_mask(velocities));
+    const FE_SimplexP<dim> fe_scalar_velocity(degree_velocity);
+    const FE_SimplexP<dim> fe_scalar_pressure(degree_pressure);
+    fe = std::make_unique<FESystem<dim>>(fe_scalar_velocity,
+                                         dim,
+                                         fe_scalar_pressure,
+                                         1);
+
+    pcout << "  Velocity degree:           = " << fe_scalar_velocity.degree
+          << std::endl;
+    pcout << "  Pressure degree:           = " << fe_scalar_pressure.degree
+          << std::endl;
+    pcout << "  DoFs per cell              = " << fe->dofs_per_cell
+          << std::endl;
+
+    quadrature = std::make_unique<QGaussSimplex<dim>>(fe->degree + 1);
+
+    pcout << "  Quadrature points per cell = " << quadrature->size()
+          << std::endl;
+
+    quadrature_face = std::make_unique<QGaussSimplex<dim - 1>>(fe->degree + 1);
+
+    pcout << "  Quadrature points per face = " << quadrature_face->size()
+          << std::endl;
   }
-  nonzero_constraints.close();
 
+  pcout << "-----------------------------------------------" << std::endl;
+
+  // Initialize the DoF handler.
   {
-    zero_constraints.clear();
+    pcout << "Initializing the DoF handler" << std::endl;
 
-    DoFTools::make_hanging_node_constraints(dof_handler, zero_constraints);
-    VectorTools::interpolate_boundary_values(dof_handler,
-                                              0,
-                                              Functions::ZeroFunction<dim>(
-                                                dim + 1),
-                                              zero_constraints,
-                                              fe.component_mask(velocities));
+    dof_handler.reinit(mesh);
+    dof_handler.distribute_dofs(*fe);
+
+    // We want to reorder DoFs so that all velocity DoFs come first, and then
+    // all pressure DoFs.
+    std::vector<unsigned int> block_component(dim + 1, 0); /* Vector with 4 elements: 3 components of velocity and 1 of pressure.
+                                                              The first 3 elements are 0 and the last one... */
+    block_component[dim] = 1; /* ...is 1.
+                                 Meaning that: I want the first 3 components to belong to block 0 and the last one to block 1. */
+    DoFRenumbering::component_wise(dof_handler, block_component); /* Indexes are changed in the way I want. */
+
+    locally_owned_dofs = dof_handler.locally_owned_dofs();
+    DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
+
+    // Besides the locally owned and locally relevant indices for the whole
+    // system (velocity and pressure), we will also need those for the
+    // individual velocity and pressure blocks.
+    std::vector<types::global_dof_index> dofs_per_block =
+      DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
+    const unsigned int n_u = dofs_per_block[0];
+    const unsigned int n_p = dofs_per_block[1];
+
+    block_owned_dofs.resize(2);
+    block_relevant_dofs.resize(2);
+    block_owned_dofs[0]    = locally_owned_dofs.get_view(0, n_u);
+    block_owned_dofs[1]    = locally_owned_dofs.get_view(n_u, n_u + n_p);
+    block_relevant_dofs[0] = locally_relevant_dofs.get_view(0, n_u);
+    block_relevant_dofs[1] = locally_relevant_dofs.get_view(n_u, n_u + n_p);
+
+    pcout << "  Number of DoFs: " << std::endl;
+    pcout << "    velocity = " << n_u << std::endl;
+    pcout << "    pressure = " << n_p << std::endl;
+    pcout << "    total    = " << n_u + n_p << std::endl;
   }
-  zero_constraints.close();
 
-  std::cout << "Number of active cells: " << mesh.n_active_cells()
-            << std::endl
-            << "Number of degrees of freedom: " << dof_handler.n_dofs()
-            << " (" << dof_u << " + " << dof_p << ')' << std::endl;
+  pcout << "-----------------------------------------------" << std::endl;
+
+  // Initialize the linear system.
+  {
+    pcout << "  Initializing the linear system" << std::endl;
+
+    pcout << "  Initializing the sparsity pattern" << std::endl;
+
+    TrilinosWrappers::BlockSparsityPattern sparsity(block_owned_dofs, /* !!! It's not the single IndexSet. */
+                                                    MPI_COMM_WORLD);
+    DoFTools::make_sparsity_pattern(dof_handler, sparsity);
+    sparsity.compress();
+
+    /* The DoF handler sees all the DoFs as part of the same system; it does not really know that 
+       velocity interacts with velocity, velocity with pressure and not pressure with itself. */
+
+    // Velocity DoFs interact with other velocity DoFs (the weak formulation has
+    // terms involving u times v), and pressure DoFs interact with velocity DoFs
+    // (there are terms involving p times v or u times q). However, pressure
+    // DoFs do not interact with other pressure DoFs (there are no terms
+    // involving p times q). We build a table to store this information, so that
+    // the sparsity pattern can be built accordingly. /* (Saving memory) */
+
+    /* I want to tell deal.II: "Insert slots in my matrix to couple velocity with itself, velocity and pressure,
+                                but I don't need slots to couple pressure with itself". */
+    Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1); /* This information is stored in this coupling table 
+                                                                (we can think of it as if it was a matrix once again). */
+    for (unsigned int c = 0; c < dim + 1; ++c)
+      {
+        for (unsigned int d = 0; d < dim + 1; ++d)
+          {
+            if (c == dim && d == dim) // pressure-pressure term
+              coupling[c][d] = DoFTools::none; /* I don't want you to insert entries for this term. */
+            else // other combinations
+              coupling[c][d] = DoFTools::always; /* I do want you to insert these terms. */
+          }
+      }
+
+    TrilinosWrappers::BlockSparsityPattern sparsity_stokes(block_owned_dofs, /* !!! It's not the single IndexSet. */
+                                                    MPI_COMM_WORLD);
+    DoFTools::make_sparsity_pattern(dof_handler, coupling, sparsity_stokes);
+    sparsity_stokes.compress();
+
+    // We also build a sparsity pattern for the pressure mass matrix.
+    for (unsigned int c = 0; c < dim + 1; ++c)
+      {
+        for (unsigned int d = 0; d < dim + 1; ++d)
+          {
+            if (c == dim && d == dim) // pressure-pressure term
+              coupling[c][d] = DoFTools::always;
+            else // other combinations
+              coupling[c][d] = DoFTools::none;
+          }
+      }
+    TrilinosWrappers::BlockSparsityPattern sparsity_pressure_mass(
+      block_owned_dofs, MPI_COMM_WORLD);
+    DoFTools::make_sparsity_pattern(dof_handler,
+                                    coupling,
+                                    sparsity_pressure_mass);
+    sparsity_pressure_mass.compress();
+
+    pcout << "  Initializing the matrices" << std::endl;
+    jacobian_matrix.reinit(sparsity);
+    stokes_system_matrix.reinit(sparsity_stokes);
+    pressure_mass.reinit(sparsity_pressure_mass);
+    stokes_pressure_mass.reinit(sparsity_pressure_mass);
+
+    pcout << "  Initializing the system right-hand side" << std::endl;
+    residual_vector.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    stokes_system_rhs.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    pcout << "  Initializing the solution vector" << std::endl;
+    solution_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    delta_owned.reinit(block_owned_dofs, MPI_COMM_WORLD);
+    solution.reinit(block_owned_dofs, block_relevant_dofs, MPI_COMM_WORLD);
+
+    solution_old = solution;
+  }
 }
 
- 
-void StationaryNavierStokes::initialize_system()
+void
+NavierStokesSolver::assemble_system()
 {
-  {
-    BlockDynamicSparsityPattern dsp(dofs_per_block, dofs_per_block);
-    DoFTools::make_sparsity_pattern(dof_handler, dsp, nonzero_constraints);
-    sparsity_pattern.copy_from(dsp);
-  }
+  pcout << "===============================================" << std::endl;
+  pcout << "Assembling the system" << std::endl;
 
-  system_matrix.reinit(sparsity_pattern);
+  const unsigned int dofs_per_cell = fe->dofs_per_cell;
+  const unsigned int n_q           = quadrature->size();
+  const unsigned int n_q_face      = quadrature_face->size();
 
-  present_solution.reinit(dofs_per_block);
-  newton_update.reinit(dofs_per_block);
-  system_rhs.reinit(dofs_per_block);
-}
+  FEValues<dim>     fe_values(*fe,
+                          *quadrature,
+                          update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+  FEFaceValues<dim> fe_face_values(*fe,
+                                   *quadrature_face,
+                                   update_values | update_normal_vectors |
+                                     update_JxW_values);
 
-//Assembel 
-void StationaryNavierStokes::assemble(const bool initial_step,
-                                            const bool assemble_matrix) {
-  if (assemble_matrix)
-    system_matrix = 0;
+  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_pressure_mass_matrix(dofs_per_cell, dofs_per_cell);
+  Vector<double>     cell_residual(dofs_per_cell);
 
-  system_rhs = 0;
+  std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
 
-  QGauss<dim> quadrature_formula(degree + 2);
+  jacobian_matrix = 0.0;
+  residual_vector = 0.0;
+  pressure_mass = 0.0;
 
-  FEValues<dim> fe_values(fe,
-                          quadrature_formula,
-                          update_values | update_quadrature_points |
-                            update_JxW_values | update_gradients);
+  FEValuesExtractors::Vector velocity(0);
+  FEValuesExtractors::Scalar pressure(dim);
 
-  const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
-  const unsigned int n_q_points    = quadrature_formula.size();
+  // We use these vectors to store the old solution (i.e. at previous Newton
+  // iteration) and its gradient on quadrature nodes of the current cell.
+  std::vector<Tensor<1, dim>> present_velocity_values(n_q);
+  std::vector<Tensor<2, dim>> present_velocity_gradients(n_q);
+  std::vector<double>         present_pressure_values(n_q);
 
-  const FEValuesExtractors::Vector velocities(0);
-  const FEValuesExtractors::Scalar pressure(dim);
-
-  FullMatrix<double> local_matrix(dofs_per_cell, dofs_per_cell);
-  Vector<double>     local_rhs(dofs_per_cell);
-
-  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-
-
-  std::vector<Tensor<1, dim>> present_velocity_values(n_q_points);
-  std::vector<Tensor<2, dim>> present_velocity_gradients(n_q_points);
-  std::vector<double>         present_pressure_values(n_q_points);
-
-  std::vector<double>         div_phi_u(dofs_per_cell);
-  std::vector<Tensor<1, dim>> phi_u(dofs_per_cell);
-  std::vector<Tensor<2, dim>> grad_phi_u(dofs_per_cell);
-  std::vector<double>         phi_p(dofs_per_cell);
+  std::vector<Tensor<1, dim>> old_velocity_values(n_q);
 
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
+      if (!cell->is_locally_owned())
+        continue;
+
       fe_values.reinit(cell);
 
-      local_matrix = 0;
-      local_rhs    = 0;
+      cell_matrix               = 0.0;
+      cell_residual             = 0.0;
+      cell_pressure_mass_matrix = 0.0;
 
-      fe_values[velocities].get_function_values(evaluation_point,
-                                                present_velocity_values);
+      fe_values[velocity].get_function_values(solution, present_velocity_values);
+      fe_values[velocity].get_function_gradients(solution, present_velocity_gradients);
+      fe_values[pressure].get_function_values(solution, present_pressure_values);
 
-      fe_values[velocities].get_function_gradients(
-        evaluation_point, present_velocity_gradients);
+      fe_values[velocity].get_function_values(solution_old, old_velocity_values);
 
-      fe_values[pressure].get_function_values(evaluation_point,
-                                              present_pressure_values);
-
-      for (unsigned int q = 0; q < n_q_points; ++q)
+      for (unsigned int q = 0; q < n_q; ++q)
         {
-          for (unsigned int k = 0; k < dofs_per_cell; ++k)
-            {
-              div_phi_u[k]  = fe_values[velocities].divergence(k, q);
-              grad_phi_u[k] = fe_values[velocities].gradient(k, q);
-              phi_u[k]      = fe_values[velocities].value(k, q);
-              phi_p[k]      = fe_values[pressure].value(k, q);
-            }
+          Vector<double> forcing_term_loc(dim);
+          forcing_term.vector_value(fe_values.quadrature_point(q),
+                                    forcing_term_loc);
+          Tensor<1, dim> forcing_term_tensor;
+          for (unsigned int d = 0; d < dim; ++d)
+            forcing_term_tensor[d] = forcing_term_loc[d];
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i)
             {
-              if (assemble_matrix)
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
                 {
-                  for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                    {
-                      local_matrix(i, j) +=
-                        (viscosity * scalar_product(grad_phi_u[j], grad_phi_u[i]) +
-                          present_velocity_gradients[q] * phi_u[j] * phi_u[i] +
-                          grad_phi_u[j] * present_velocity_values[q] *
-                            phi_u[i] -
-                          div_phi_u[i] * phi_p[j] - phi_p[i] * div_phi_u[j] +
-                          gamma * div_phi_u[j] * div_phi_u[i] +
-                          phi_p[i] * phi_p[j]) *
-                        fe_values.JxW(q);
-                    }
+                  // Mass matrix.
+                  cell_matrix(i, j) += fe_values[velocity].value(i, q) *
+                                       fe_values[velocity].value(j, q) / deltat *
+                                       fe_values.JxW(q);
+
+                  // Viscosity term.
+                  cell_matrix(i, j) += nu * rho *
+                                       scalar_product(fe_values[velocity].gradient(i, q),
+                                                      fe_values[velocity].gradient(j, q)) *
+                                       fe_values.JxW(q);
+
+                  cell_matrix(i, j) += rho *
+                                       present_velocity_gradients[q] *
+                                       fe_values[velocity].value(j, q) *
+                                       fe_values[velocity].value(i, q) *
+                                       fe_values.JxW(q);
+
+                  cell_matrix(i, j) += rho *
+                                       present_velocity_values[q] *
+                                       fe_values[velocity].gradient(j, q) *
+                                       fe_values[velocity].value(i, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure term in the momentum equation.
+                  cell_matrix(i, j) -= fe_values[velocity].divergence(i, q) *
+                                       fe_values[pressure].value(j, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure term in the continuity equation.
+                  cell_matrix(i, j) -= fe_values[velocity].divergence(j, q) *
+                                       fe_values[pressure].value(i, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure mass matrix.
+                  cell_pressure_mass_matrix(i, j) += fe_values[pressure].value(i, q) *
+                                                     fe_values[pressure].value(j, q) / nu * 
+                                                     fe_values.JxW(q);
                 }
 
-              double present_velocity_divergence = trace(present_velocity_gradients[q]);
-              local_rhs(i) +=
-                (-viscosity * scalar_product(present_velocity_gradients[q],
-                                              grad_phi_u[i]) -
-                  present_velocity_gradients[q] * present_velocity_values[q] *
-                    phi_u[i] +
-                  present_pressure_values[q] * div_phi_u[i] +
-                  present_velocity_divergence * phi_p[i] -
-                  gamma * present_velocity_divergence * div_phi_u[i]) *
-                fe_values.JxW(q);
+              // Time derivative term.
+              cell_residual(i) -= rho * (present_velocity_values[q] - old_velocity_values[q]) / deltat * 
+                                  fe_values[velocity].value(i, q) *
+                                  fe_values.JxW(q);
+
+              cell_residual(i) -= nu * rho *
+                                  scalar_product(present_velocity_gradients[q],
+                                                 fe_values[velocity].gradient(i, q)) *
+                                  fe_values.JxW(q);
+
+              cell_residual(i) -= rho *
+                                  present_velocity_values[q] *
+                                  present_velocity_gradients[q] *
+                                  fe_values[velocity].value(i, q) *
+                                  fe_values.JxW(q);
+
+              cell_residual(i) += present_pressure_values[q] *
+                                  fe_values[velocity].divergence(i, q) *
+                                  fe_values.JxW(q);
+
+              // Forcing term.
+              cell_residual(i) += scalar_product(forcing_term_tensor,
+                                                 fe_values[velocity].value(i, q)) *
+                                  fe_values.JxW(q);
             }
         }
 
-      cell->get_dof_indices(local_dof_indices);
-
-      const AffineConstraints<double> &constraints_used = initial_step ? nonzero_constraints : zero_constraints;
-
-      if (assemble_matrix) {
-          constraints_used.distribute_local_to_global(local_matrix,
-                                                      local_rhs,
-                                                      local_dof_indices,
-                                                      system_matrix,
-                                                      system_rhs);
-        }
-      else {
-          constraints_used.distribute_local_to_global(local_rhs,
-                                                      local_dof_indices,
-                                                      system_rhs);
-        }
-    }
-
-  if (assemble_matrix) {
-      pressure_mass_matrix.reinit(sparsity_pattern.block(1, 1));
-      pressure_mass_matrix.copy_from(system_matrix.block(1, 1));
-
-      system_matrix.block(1, 1) = 0;
-    }
-}
-
- 
-void StationaryNavierStokes::assemble_system(const bool initial_step) {
-  assemble(initial_step, true);
-}
-
- 
-void StationaryNavierStokes::assemble_rhs(const bool initial_step) {
-  assemble(initial_step, false);
-}
-
- 
-void StationaryNavierStokes::solve(const bool initial_step)
-{
-  const AffineConstraints<double> &constraints_used =
-    initial_step ? nonzero_constraints : zero_constraints;
-
-  SolverControl solver_control(system_matrix.m(),
-                                1e-4 * system_rhs.l2_norm(),
-                                true);
-
-  SolverFGMRES<BlockVector<double>> gmres(solver_control);
-  SparseILU<double>                 pmass_preconditioner;
-  pmass_preconditioner.initialize(pressure_mass_matrix,
-                                  SparseILU<double>::AdditionalData());
-
-  const BlockSchurPreconditioner<SparseILU<double>> preconditioner(
-    gamma,
-    viscosity,
-    system_matrix,
-    pressure_mass_matrix,
-    pmass_preconditioner);
-
-  gmres.solve(system_matrix, newton_update, system_rhs, preconditioner);
-  std::cout << "FGMRES steps: " << solver_control.last_step() << std::endl;
-
-  constraints_used.distribute(newton_update);
-}
-
- 
-void StationaryNavierStokes::refine_mesh() {
-  Vector<float> estimated_error_per_cell(mesh.n_active_cells());
-  const FEValuesExtractors::Vector velocity(0);
-  KellyErrorEstimator<dim>::estimate(
-    dof_handler,
-    QGauss<dim - 1>(degree + 1),
-    std::map<types::boundary_id, const Function<dim> *>(),
-    present_solution,
-    estimated_error_per_cell,
-    fe.component_mask(velocity));
-
-  GridRefinement::refine_and_coarsen_fixed_number(mesh,
-                                                  estimated_error_per_cell,
-                                                  0.3,
-                                                  0.0);
-
-  mesh.prepare_coarsening_and_refinement();
-  SolutionTransfer<dim, BlockVector<double>> solution_transfer(dof_handler);
-  solution_transfer.prepare_for_coarsening_and_refinement(present_solution);
-  mesh.execute_coarsening_and_refinement();
-
-  setup_dofs();
-
-  BlockVector<double> tmp(dofs_per_block);
-
-  solution_transfer.interpolate(present_solution, tmp);
-  nonzero_constraints.distribute(tmp);
-
-  initialize_system();
-  present_solution = tmp;
-}
-
- 
-void StationaryNavierStokes::newton_iteration(
-  const double       tolerance,
-  const unsigned int max_n_line_searches,
-  const unsigned int max_n_refinements,
-  const bool         is_initial_step,
-  const bool         output_result) {
-    
-  bool first_step = is_initial_step;
-
-  for (unsigned int refinement_n = 0; refinement_n < max_n_refinements + 1; ++refinement_n) {
-    unsigned int line_search_n = 0;
-    double       last_res      = 1.0;
-    double       current_res   = 1.0;
-    std::cout << "grid refinements: " << refinement_n << std::endl
-              << "viscosity: " << viscosity << std::endl;
-
-    while ((first_step || (current_res > tolerance)) && line_search_n < max_n_line_searches) {
-      if (first_step) {
-        setup_dofs();
-        initialize_system();
-        evaluation_point = present_solution;
-        assemble_system(first_step);
-        solve(first_step);
-        present_solution = newton_update;
-        nonzero_constraints.distribute(present_solution);
-        first_step       = false;
-        evaluation_point = present_solution;
-        assemble_rhs(first_step);
-        current_res = system_rhs.l2_norm();
-        std::cout << "The residual of initial guess is " << current_res
-                  << std::endl;
-        last_res = current_res;
-      }
-      else {
-        evaluation_point = present_solution;
-        assemble_system(first_step);
-        solve(first_step);
-
-        for (double alpha = 1.0; alpha > 1e-5; alpha *= 0.5)
-          {
-            evaluation_point = present_solution;
-            evaluation_point.add(alpha, newton_update);
-            nonzero_constraints.distribute(evaluation_point);
-            assemble_rhs(first_step);
-            current_res = system_rhs.l2_norm();
-            std::cout << "  alpha: " << std::setw(10) << alpha
-                      << std::setw(0) << "  residual: " << current_res
-                      << std::endl;
-            if (current_res < last_res)
-              break;
-          }
+      // Boundary integral for Neumann BCs.
+      if (cell->at_boundary())
         {
-          present_solution = evaluation_point;
-          std::cout << "  number of line searches: " << line_search_n
-                    << "  residual: " << current_res << std::endl;
-          last_res = current_res;
+          for (unsigned int f = 0; f < cell->n_faces(); ++f)
+            {
+              if (cell->face(f)->at_boundary() &&
+                  cell->face(f)->boundary_id() == 10)
+                {
+                  fe_face_values.reinit(cell, f);
+
+                  for (unsigned int q = 0; q < n_q_face; ++q)
+                    {
+                      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                        {
+                          cell_residual(i) += -p_out *
+                                              scalar_product(fe_face_values.normal_vector(q),
+                                                             fe_face_values[velocity].value(i, q)) *
+                                              fe_face_values.JxW(q);
+                        }
+                    }
+                }
+            }
         }
-        ++line_search_n;
-      }
 
-      if (output_result){
-        output_results(max_n_line_searches * refinement_n +
-                        line_search_n);
+      cell->get_dof_indices(dof_indices);
 
-        if (current_res <= tolerance) process_solution(refinement_n);
-      }
+      jacobian_matrix.add(dof_indices, cell_matrix);
+      residual_vector.add(dof_indices, cell_residual);
+      pressure_mass.add(dof_indices, cell_pressure_mass_matrix);
     }
 
-    if (refinement_n < max_n_refinements) {
-      refine_mesh();
-    }
+  jacobian_matrix.compress(VectorOperation::add);
+  residual_vector.compress(VectorOperation::add);
+  pressure_mass.compress(VectorOperation::add);
+
+  // Dirichlet boundary conditions.
+  {
+    std::map<types::global_dof_index, double>           boundary_values;
+    std::map<types::boundary_id, const Function<dim> *> boundary_functions;
+
+    // We interpolate first the inlet velocity condition alone, then the wall
+    // condition alone, so that the latter "win" over the former where the two
+    // boundaries touch.
+    boundary_functions[11] = &inlet_velocity;
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             boundary_functions,
+                                             boundary_values,
+                                             ComponentMask(
+                                               {true, true, false})); /* They're only applied to the velocity */
+
+/*     boundary_functions.clear(); */ /* The order is important because... what about the DoFs on the interface between inlet and wall?
+                                   In this case we want wall bcs to win over the inlet, so we write it later. */
+    Functions::ZeroFunction<dim> zero_function(dim + 1);
+    boundary_functions[12] = &zero_function;
+    boundary_functions[13] = &zero_function;
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             boundary_functions,
+                                             boundary_values,
+                                             ComponentMask(
+                                               {true, true, false}));
+
+    MatrixTools::apply_boundary_values(
+      boundary_values, jacobian_matrix, delta_owned, residual_vector, false);
   }
 }
 
- 
-void StationaryNavierStokes::compute_initial_guess()
+void
+NavierStokesSolver::assemble_stokes_system()
 {
-  const double target_Re = 1.0 / viscosity;
+  pcout << "===============================================" << std::endl;
+  pcout << "Assembling the Stokes system" << std::endl;
 
-  bool is_initial_step = true;
+  const unsigned int dofs_per_cell = fe->dofs_per_cell;
+  const unsigned int n_q           = quadrature->size();
+  const unsigned int n_q_face      = quadrature_face->size();
 
-  for (double Re = 1000.0; Re < target_Re; Re = std::min(Re + step_size, target_Re)) {
-    viscosity = 1.0 / Re;
-    std::cout << "Searching for initial guess with Re = " << Re << std::endl;
-    newton_iteration(1e-12, 50, 0, is_initial_step, false);
-    is_initial_step = false;
+  FEValues<dim>     fe_values(*fe,
+                          *quadrature,
+                          update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
+  FEFaceValues<dim> fe_face_values(*fe,
+                                   *quadrature_face,
+                                   update_values | update_normal_vectors |
+                                     update_JxW_values);
+
+  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_pressure_mass_matrix(dofs_per_cell, dofs_per_cell);
+  Vector<double>     cell_rhs(dofs_per_cell);
+
+  std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
+
+  stokes_system_matrix = 0.0;
+  stokes_system_rhs    = 0.0;
+  stokes_pressure_mass = 0.0;
+
+  FEValuesExtractors::Vector velocity(0);
+  FEValuesExtractors::Scalar pressure(dim);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (!cell->is_locally_owned())
+        continue;
+
+      fe_values.reinit(cell);
+
+      cell_matrix               = 0.0;
+      cell_rhs                  = 0.0;
+      cell_pressure_mass_matrix = 0.0;
+
+      for (unsigned int q = 0; q < n_q; ++q)
+        {
+          Vector<double> forcing_term_loc(dim);
+          forcing_term.vector_value(fe_values.quadrature_point(q),
+                                    forcing_term_loc);
+          Tensor<1, dim> forcing_term_tensor;
+          for (unsigned int d = 0; d < dim; ++d)
+            forcing_term_tensor[d] = forcing_term_loc[d];
+
+          for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            {
+              for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                {
+                  // Viscosity term.
+                  cell_matrix(i, j) +=
+                    nu * rho *
+                    scalar_product(fe_values[velocity].gradient(i, q),
+                                   fe_values[velocity].gradient(j, q)) *
+                    fe_values.JxW(q);
+
+                  // Pressure term in the momentum equation.
+                  cell_matrix(i, j) -= fe_values[velocity].divergence(i, q) *
+                                       fe_values[pressure].value(j, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure term in the continuity equation.
+                  cell_matrix(i, j) -= fe_values[velocity].divergence(j, q) *
+                                       fe_values[pressure].value(i, q) *
+                                       fe_values.JxW(q);
+
+                  // Pressure mass matrix.
+                  cell_pressure_mass_matrix(i, j) +=
+                    fe_values[pressure].value(i, q) *
+                    fe_values[pressure].value(j, q) / nu * fe_values.JxW(q);
+                }
+
+              // Forcing term.
+              cell_rhs(i) += scalar_product(forcing_term_tensor,
+                                            fe_values[velocity].value(i, q)) *
+                             fe_values.JxW(q);
+            }
+        }
+
+      // Boundary integral for Neumann BCs.
+      if (cell->at_boundary())
+        {
+          for (unsigned int f = 0; f < cell->n_faces(); ++f)
+            {
+              if (cell->face(f)->at_boundary() &&
+                  cell->face(f)->boundary_id() == 1)
+                {
+                  fe_face_values.reinit(cell, f);
+
+                  for (unsigned int q = 0; q < n_q_face; ++q)
+                    {
+                      for (unsigned int i = 0; i < dofs_per_cell; ++i)
+                        {
+                          cell_rhs(i) +=
+                            -p_out *
+                            scalar_product(fe_face_values.normal_vector(q),
+                                           fe_face_values[velocity].value(i,
+                                                                          q)) *
+                            fe_face_values.JxW(q);
+                        }
+                    }
+                }
+            }
+        }
+
+      cell->get_dof_indices(dof_indices);
+
+      stokes_system_matrix.add(dof_indices, cell_matrix);
+      stokes_system_rhs.add(dof_indices, cell_rhs);
+      stokes_pressure_mass.add(dof_indices, cell_pressure_mass_matrix);
+    }
+
+  stokes_system_matrix.compress(VectorOperation::add);
+  stokes_system_rhs.compress(VectorOperation::add);
+  stokes_pressure_mass.compress(VectorOperation::add);
+
+  // Dirichlet boundary conditions.
+  {
+    std::map<types::global_dof_index, double>           boundary_values;
+    std::map<types::boundary_id, const Function<dim> *> boundary_functions;
+
+    // We interpolate first the inlet velocity condition alone, then the wall
+    // condition alone, so that the latter "win" over the former where the two
+    // boundaries touch.
+    boundary_functions[0] = &inlet_velocity;
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             boundary_functions,
+                                             boundary_values,
+                                             ComponentMask(
+                                               {true, true, false}));
+
+    boundary_functions.clear();
+    Functions::ZeroFunction<dim> zero_function(dim + 1);
+    boundary_functions[2] = &zero_function;
+    boundary_functions[3] = &zero_function;
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             boundary_functions,
+                                             boundary_values,
+                                             ComponentMask(
+                                               {true, true, false}));
+
+    MatrixTools::apply_boundary_values(
+      boundary_values, stokes_system_matrix, solution, stokes_system_rhs, false);
   }
 }
 
- 
-void StationaryNavierStokes::output_results(
-  const unsigned int output_index) const
+void
+NavierStokesSolver::solve_stokes_system()
 {
-  std::vector<std::string> solution_names(dim, "velocity");
-  solution_names.emplace_back("pressure");
+  pcout << "===============================================" << std::endl;
+
+  SolverControl solver_control(2000, 1e-6 * stokes_system_rhs.l2_norm());
+
+  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+
+  // PreconditionBlockDiagonal preconditioner;
+  // preconditioner.initialize(system_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1));
+
+  PreconditionBlockTriangular preconditioner;
+  preconditioner.initialize(stokes_system_matrix.block(0, 0),
+                            stokes_pressure_mass.block(1, 1),
+                            stokes_system_matrix.block(1, 0));
+
+  pcout << "Solving the Stokes system" << std::endl;
+  solver.solve(stokes_system_matrix, solution_owned, stokes_system_rhs, preconditioner);
+  pcout << "  " << solver_control.last_step() << " GMRES iterations"
+        << std::endl;
+
+  solution = solution_owned;
+
+  output(0., 0.);
+}
+
+void
+NavierStokesSolver::solve_system()
+{
+  pcout << "===============================================" << std::endl;
+
+  SolverControl solver_control(100000, 1e-2 * residual_vector.l2_norm());
+
+  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+
+  PreconditionIdentity preconditioner;
+
+  // PreconditionBlockDiagonal preconditioner;
+  // preconditioner.initialize(jacobian_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1));
+
+
+  // PreconditionBlockTriangular preconditioner;
+  // preconditioner.initialize(jacobian_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1),
+  //                           jacobian_matrix.block(1, 0));
+
+  pcout << "Solving system..." << std::endl;
+  solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 
+  pcout << "   " << solver_control.last_step() << " GMRES iterations"
+        << std::endl;
+
+  solution = solution_owned;
+}
+
+void
+NavierStokesSolver::solve_newton()
+{
+  const unsigned int n_max_iters        = 1000;
+  const double       residual_tolerance = 1e-2;
+
+  unsigned int n_iter        = 0;
+  double       residual_norm = residual_tolerance + 1;
+
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
+    {
+      assemble_system();
+      residual_norm = residual_vector.l2_norm();
+
+      pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
+            << " - ||r|| = " << std::scientific << std::setprecision(6)
+            << residual_norm << std::flush;
+
+      // We actually solve the system only if the residual is larger than the
+      // tolerance.
+      if (residual_norm > residual_tolerance)
+        {
+          solve_system();
+          pcout << "System solved!" << std::endl;
+
+          // delta_owned *= 0.1;
+          solution_owned += delta_owned;
+          // solution_owned.add(0.001, delta_owned);
+          solution = solution_owned;
+        }
+      else
+        {
+          pcout << " < tolerance" << std::endl;
+        }
+
+      ++n_iter;
+    }
+}
+
+void
+NavierStokesSolver::solve()
+{
+  pcout << "===============================================" << std::endl;
+
+  time = 0.0;
+
+/*   // Finding the initial condition (small Reynolds number).
+  {
+    pcout << "Finding the initial condition" << std::endl;
+
+    assemble_stokes_system();
+    solve_stokes_system();
+
+    pcout << "-----------------------------------------------" << std::endl;
+  } */
+
+  // Apply the initial condition.
+  {
+    pcout << "Applying the initial condition" << std::endl;
+
+    VectorTools::interpolate(dof_handler, u_0, solution_owned);
+    solution = solution_owned;
+
+    // Output the initial solution.
+    output(0, 0.0);
+    pcout << "-----------------------------------------------" << std::endl;
+  }
+
+  unsigned int time_step = 0;
+
+  while (time < T - 0.5 * deltat)
+    {
+      time += deltat;
+      ++time_step;
+
+      // Store the old solution, so that it is available for assembly.
+      solution_old = solution;
+
+      pcout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
+            << std::fixed << time << std::endl;
+
+      // At every time step, we invoke Newton's method to solve the non-linear
+      // problem.
+      solve_newton();
+
+      output(time_step, time);
+
+      pcout << std::endl;
+    }
+}
+
+void
+NavierStokesSolver::output(const unsigned int &time_step, const double &time) const
+{
+  pcout << "===============================================" << std::endl;
+
+  DataOut<dim> data_out;
 
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     data_component_interpretation(
       dim, DataComponentInterpretation::component_is_part_of_vector);
   data_component_interpretation.push_back(
     DataComponentInterpretation::component_is_scalar);
-  DataOut<dim> data_out;
-  data_out.attach_dof_handler(dof_handler);
-  data_out.add_data_vector(present_solution,
-                            solution_names,
-                            DataOut<dim>::type_dof_data,
-                            data_component_interpretation);
+  std::vector<std::string> names = {"velocity",
+                                    "velocity",
+                                    "pressure"};
+
+  data_out.add_data_vector(dof_handler,
+                           solution,
+                           names,
+                           data_component_interpretation);
+
+  std::vector<unsigned int> partition_int(mesh.n_active_cells());
+  GridTools::get_subdomain_association(mesh, partition_int);
+  const Vector<double> partitioning(partition_int.begin(), partition_int.end());
+  data_out.add_data_vector(partitioning, "partitioning");
+
   data_out.build_patches();
 
-  std::ofstream output(std::to_string(1.0 / viscosity) + "-solution-" +
-                        Utilities::int_to_string(output_index, 4) + ".vtk");
-  data_out.write_vtk(output);
+  std::string output_file_name = std::to_string(time_step);
+
+  // Pad with zeros.
+  output_file_name = "output-" + std::string(4 - output_file_name.size(), '0') +
+                     output_file_name;
+
+  DataOutBase::DataOutFilter data_filter(
+    DataOutBase::DataOutFilterFlags(/*filter_duplicate_vertices = */ false,
+                                    /*xdmf_hdf5_output = */ true));
+  data_out.write_filtered_data(data_filter);
+  data_out.write_hdf5_parallel(data_filter,
+                               output_file_name + ".h5",
+                               MPI_COMM_WORLD);
+
+  std::vector<XDMFEntry> xdmf_entries({data_out.create_xdmf_entry(
+    data_filter, output_file_name + ".h5", time, MPI_COMM_WORLD)});
+  data_out.write_xdmf_file(xdmf_entries,
+                           output_file_name + ".xdmf",
+                           MPI_COMM_WORLD);
 }
 
- 
-void StationaryNavierStokes::process_solution(unsigned int refinement)
-{
-  std::ofstream f(std::to_string(1.0 / viscosity) + "-line-" +
-                  std::to_string(refinement) + ".txt");
-  f << "# y u_x u_y" << std::endl;
+/* void NavierStokesSolver::assemble_system() {
 
-  Point<dim> p;
-  p(0) = 0.5;
-  p(1) = 0.5;
+      pcout << "===============================================" << std::endl;
+    pcout << "Assembling the system" << std::endl;
 
-  f << std::scientific;
+    //clear the system matrix and rhs, because these change every iteration
+    // system_matrix.reinit(sparsity_pattern);
+    system_rhs.reinit(dof_handler.n_dofs());
+    const int dofs_per_cell = fe->dofs_per_cell;
+    const int n_q_points = quadrature->size();
+    const int n_q_points_face = quadrature_face->size();
+    std::vector<Tensor<1,dim> > previous_newton_velocity_values (n_q_points);
+    std::vector<Tensor< 2, dim> > previous_newton_velocity_gradients (n_q_points);
+    // std::vector<Vector<double> > rhs_values (n_q_points, Vector<double>(dim+1));
+    std::vector<Tensor<2,dim> > grad_phi_u(dofs_per_cell);
+    std::vector<double> div_phi_u(dofs_per_cell);
+    std::vector<double> phi_p(dofs_per_cell);
+    std::vector<Tensor<1,dim> > phi_u(dofs_per_cell);
+    Vector<double> cell_rhs(dofs_per_cell);
+    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+    const FEValuesExtractors::Vector velocities(0);
+    const FEValuesExtractors::Scalar pressure(dim);
+    FEValues<dim> fe_values(*fe, *quadrature, update_values |
+                                update_gradients | update_JxW_values | update_quadrature_points);
+    typename DoFHandler<dim>::active_cell_iterator
+    cell = dof_handler.begin_active(), endc = dof_handler.end();
 
-  for (unsigned int i = 0; i <= 100; ++i)
-    {
-      p(dim - 1) = i / 100.0;
-
-      Vector<double> tmp_vector(dim + 1);
-      VectorTools::point_value(dof_handler, present_solution, p, tmp_vector);
-      f << p(dim - 1);
-
-      for (unsigned int j = 0; j < dim; ++j)
-        f << ' ' << tmp_vector(j);
-      f << std::endl;
+    for (; cell!=endc; ++cell) {
+        fe_values.reinit(cell);
+        cell_matrix = 0;
+        cell_rhs = 0;
+        //Calculate velocity values and gradients from previous newton iteration
+        //at each quadrature point in cell
+        fe_values[velocities].get_function_values(previous_newton_step,
+            previous_newton_velocity_values);
+        fe_values[velocities].get_function_gradients(previous_newton_step,
+            previous_newton_velocity_gradients);
+        // forcing_term.vector_value(fe_values.get_quadrature_points(), rhs_values);
+        //calculate cell contribution to system
+        for (int q = 0; q < n_q_points; q++) {
+          Vector<double> forcing_term_loc(dim);
+          forcing_term.vector_value(fe_values.quadrature_point(q),
+                                    forcing_term_loc);
+          Tensor<1, dim> forcing_term_tensor;
+          for (unsigned int d = 0; d < dim; ++d)
+            forcing_term_tensor[d] = forcing_term_loc[d];
+            for (int k=0; k<dofs_per_cell; k++) {
+                grad_phi_u[k] = fe_values[velocities].gradient (k, q);
+                div_phi_u[k] = fe_values[velocities].divergence (k, q);
+                phi_p[k] = fe_values[pressure].value (k, q);
+                phi_u[k] = fe_values[velocities].value (k, q);
+            }
+            for (int i = 0; i < dofs_per_cell; i++) {
+                for (int j = 0; j < dofs_per_cell; j++) {
+                    cell_matrix(i,j) +=
+                    (nu*scalar_product(grad_phi_u[i],grad_phi_u[j])
+                    + phi_u[j]
+                    *transpose(
+                    previous_newton_velocity_gradients[q])
+                    *phi_u[i]
+                    + previous_newton_velocity_values[q]
+                    *transpose(grad_phi_u[j])*phi_u[i]
+                    - phi_p[j]*div_phi_u[i]
+                    - phi_p[i]*div_phi_u[j])
+                    *fe_values.JxW(q);
+                }
+                int equation_i = fe->system_to_component_index(i).first;
+                cell_rhs(i) += (scalar_product(forcing_term_tensor, fe_values[velocities].value(i, q)) + previous_newton_velocity_values[q] *
+                                            transpose(previous_newton_velocity_gradients[q])*phi_u[i]) *fe_values.JxW(q);
+            }
+        }
+        cell->get_dof_indices(local_dof_indices);
+        //constraints.distribute_local_to_global(cell_matrix, cell_rhs, local_dof_indices, system_matrix, system_rhs);
+          system_matrix.compress(VectorOperation::add);
+        system_rhs.compress(VectorOperation::add);
     }
-}
+} */
 
- 
-void StationaryNavierStokes::run(const unsigned int refinement)
-{
 
-  const double Re = 1.0 / viscosity;
 
-  if (Re > re_boundary) {
-      std::cout << "Searching for initial guess ..." << std::endl;
-      compute_initial_guess();
-      std::cout << "Found initial guess." << std::endl;
-      std::cout << "Computing solution with target Re = " << Re << std::endl;
-      viscosity = 1.0 / Re;
-      newton_iteration(1e-12, 50, refinement, false, true);
-  }
-  else {
-      newton_iteration(1e-12, 50, refinement, true, true);
-  }
-}
+/* void NavierStokesSolver::run_newton_loop(int cycle) {
+    int MAX_ITER = 10;
+    double TOL = 1e-8;
+    int iter = 0;
+    double residual = 0;
+    //solve Stokes equations for initial guess
+    assemble_stokes_system();
+    solve();
+    previous_newton_step = solution;
+    while (iter == 0 || (residual > TOL && iter < MAX_ITER)) {
+        assemble_system();
+        solve();
+        TrilinosWrappers::MPI::BlockVector res_vec = solution;
+        res_vec -= previous_newton_step;
+        residual = res_vec.l2_norm()/(dof_handler.n_dofs());
+        previous_newton_step = solution;
+        iter++;
+        
+        pcout << "Residual = " << std::to_string(residual) << std::endl;
+    }
+    if (iter == MAX_ITER) {
+        pcout << "WARNING: Newton’s method failed to converge\n" << std::endl;
+    }
+} */
