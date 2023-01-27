@@ -454,7 +454,7 @@ public:
     virtual void
     vector_value(const Point<dim> &p, Vector<double> &values) const override
     {
-      values[0] = 1. /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
+      values[0] = 0.1 /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
 
       for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
@@ -464,7 +464,7 @@ public:
     value(const Point<dim> &p, const unsigned int component = 0) const override
     {
       if (component == 0)
-        return 1. /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
+        return 0.1 /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
       else
         return 0.0;
     }
@@ -677,13 +677,13 @@ protected:
   // Problem definition. ///////////////////////////////////////////////////////
 
   // Kinematic viscosity [m2/s].
-  const double nu = 0.2;
+  const double nu = 1;
 
   // Fluid density [kg/m3].
-  const double rho = 1;
+  const double rho = 0.001;
 
   // Outlet pressure [Pa].
-  const double p_out = 10;
+  const double p_out = 0.01;
 
   // Forcing term.
   ForcingTerm forcing_term;

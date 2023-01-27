@@ -354,14 +354,14 @@ NavierStokesSolver::assemble_system()
     // We interpolate first the inlet velocity condition alone, then the wall
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
-    boundary_functions[0] = &inlet_velocity;
+/*     boundary_functions[0] = &inlet_velocity;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
                                              ComponentMask(
-                                               {true, true, false})); /* They're only applied to the velocity */
+                                               {true, true, false})); */ /* They're only applied to the velocity */
 
-    boundary_functions.clear(); /* The order is important because... what about the DoFs on the interface between inlet and wall?
+/*     boundary_functions.clear(); */ /* The order is important because... what about the DoFs on the interface between inlet and wall?
                                    In this case we want wall bcs to win over the inlet, so we write it later. */
     Functions::ZeroFunction<dim> zero_function(dim + 1);
     boundary_functions[2] = &zero_function;
@@ -591,7 +591,7 @@ void
 NavierStokesSolver::solve_newton()
 {
   const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-6;
+  const double       residual_tolerance = 1e-5;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
@@ -614,7 +614,7 @@ NavierStokesSolver::solve_newton()
 
           // delta_owned *= 0.1;
           solution_owned += delta_owned;
-          // solution_owned.add(0.1, delta_owned);
+          // solution_owned.add(0.001, delta_owned);
           solution = solution_owned;
         }
       else
@@ -709,7 +709,7 @@ NavierStokesSolver::output(const unsigned int &time_step, const double &time) co
                                MPI_COMM_WORLD);
 
   std::vector<XDMFEntry> xdmf_entries({data_out.create_xdmf_entry(
-    data_filter, output_file_name + ".h5", 0, MPI_COMM_WORLD)});
+    data_filter, output_file_name + ".h5", time, MPI_COMM_WORLD)});
   data_out.write_xdmf_file(xdmf_entries,
                            output_file_name + ".xdmf",
                            MPI_COMM_WORLD);
