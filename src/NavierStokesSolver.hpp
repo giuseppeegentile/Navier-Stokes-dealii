@@ -454,7 +454,7 @@ public:
     virtual void
     vector_value(const Point<dim> &p, Vector<double> &values) const override
     {
-      values[0] = 0.1 /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
+      values[0] = 4. * u_m * p[1] * (H - p[1]) * std::sin(M_PI * get_time() / 8.) / (H * H);
 
       for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
@@ -464,13 +464,36 @@ public:
     value(const Point<dim> &p, const unsigned int component = 0) const override
     {
       if (component == 0)
-        return 0.1 /* -alpha * p[1] * (2.0 - p[1]) * (1.0 - p[2]) * (2.0 - p[2]) */;
+        return 4. * u_m * p[1] * (H - p[1]) * std::sin(M_PI * get_time() / 8.) / (H * H);
       else
         return 0.0;
     }
 
   protected:
-    const double alpha = 1.0;
+    const double u_m = 1.5;
+    const double H = 0.41;
+  };
+
+  // Function for initial conditions.
+  class FunctionU0 : public Function<dim>
+  {
+  public:
+    FunctionU0()
+      : Function<dim>(dim + 1)
+    {}
+
+    virtual void
+    vector_value(const Point<dim> &p, Vector<double> &values) const override
+    {
+      for (unsigned int i = 0; i < dim + 1; ++i)
+        values[i] = 0.0;
+    }
+
+    virtual double
+    value(const Point<dim> &p, const unsigned int component = 0) const override
+    {
+        return 0.0;
+    }
   };
 
   // Since we're working with block matrices, we need to make our own
@@ -516,7 +539,7 @@ public:
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
       SolverControl                           solver_control_velocity(1000,
-                                            1e-6 * src.block(0).l2_norm());
+                                            1e-2 * src.block(0).l2_norm());
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
       solver_cg_velocity.solve(*velocity_stiffness,
@@ -525,7 +548,7 @@ public:
                                preconditioner_velocity);
 
       SolverControl                           solver_control_pressure(1000,
-                                            1e-6 * src.block(1).l2_norm());
+                                            1e-2 * src.block(1).l2_norm());
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
       solver_cg_pressure.solve(*pressure_mass,
@@ -677,16 +700,19 @@ protected:
   // Problem definition. ///////////////////////////////////////////////////////
 
   // Kinematic viscosity [m2/s].
-  const double nu = 1;
+  const double nu = 0.001;
 
   // Fluid density [kg/m3].
-  const double rho = 0.001;
+  const double rho = 1;
 
   // Outlet pressure [Pa].
-  const double p_out = 0.01;
+  const double p_out = 10;
 
   // Forcing term.
   ForcingTerm forcing_term;
+
+  // Initial conditions.
+  FunctionU0 u_0;
 
   // Inlet velocity.
   InletVelocity inlet_velocity;

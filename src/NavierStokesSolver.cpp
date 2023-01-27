@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/mesh-square-h0.050000.msh");
+    std::ifstream grid_in_file("../mesh/correct_mesh_yt.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -317,7 +317,7 @@ NavierStokesSolver::assemble_system()
           for (unsigned int f = 0; f < cell->n_faces(); ++f)
             {
               if (cell->face(f)->at_boundary() &&
-                  cell->face(f)->boundary_id() == 1)
+                  cell->face(f)->boundary_id() == 10)
                 {
                   fe_face_values.reinit(cell, f);
 
@@ -354,18 +354,18 @@ NavierStokesSolver::assemble_system()
     // We interpolate first the inlet velocity condition alone, then the wall
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
-/*     boundary_functions[0] = &inlet_velocity;
+    boundary_functions[11] = &inlet_velocity;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
                                              ComponentMask(
-                                               {true, true, false})); */ /* They're only applied to the velocity */
+                                               {true, true, false})); /* They're only applied to the velocity */
 
 /*     boundary_functions.clear(); */ /* The order is important because... what about the DoFs on the interface between inlet and wall?
                                    In this case we want wall bcs to win over the inlet, so we write it later. */
     Functions::ZeroFunction<dim> zero_function(dim + 1);
-    boundary_functions[2] = &zero_function;
-    boundary_functions[3] = &zero_function;
+    boundary_functions[12] = &zero_function;
+    boundary_functions[13] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -563,7 +563,7 @@ NavierStokesSolver::solve_system()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(10000, 1e-4 * residual_vector.l2_norm());
+  SolverControl solver_control(100000, 1e-2 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -591,7 +591,7 @@ void
 NavierStokesSolver::solve_newton()
 {
   const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-5;
+  const double       residual_tolerance = 1e-2;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
@@ -633,13 +633,25 @@ NavierStokesSolver::solve()
 
   time = 0.0;
 
-  // Finding the initial condition (small Reynolds number).
+/*   // Finding the initial condition (small Reynolds number).
   {
     pcout << "Finding the initial condition" << std::endl;
 
     assemble_stokes_system();
     solve_stokes_system();
 
+    pcout << "-----------------------------------------------" << std::endl;
+  } */
+
+  // Apply the initial condition.
+  {
+    pcout << "Applying the initial condition" << std::endl;
+
+    VectorTools::interpolate(dof_handler, u_0, solution_owned);
+    solution = solution_owned;
+
+    // Output the initial solution.
+    output(0, 0.0);
     pcout << "-----------------------------------------------" << std::endl;
   }
 
