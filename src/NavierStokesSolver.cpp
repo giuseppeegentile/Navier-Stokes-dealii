@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/correct_mesh_yt.msh");
+    std::ifstream grid_in_file("../mesh/paper_correct.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -317,7 +317,7 @@ NavierStokesSolver::assemble_system()
           for (unsigned int f = 0; f < cell->n_faces(); ++f)
             {
               if (cell->face(f)->at_boundary() &&
-                  cell->face(f)->boundary_id() == 10)
+                  cell->face(f)->boundary_id() == 2)
                 {
                   fe_face_values.reinit(cell, f);
 
@@ -354,7 +354,7 @@ NavierStokesSolver::assemble_system()
     // We interpolate first the inlet velocity condition alone, then the wall
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
-    boundary_functions[11] = &inlet_velocity;
+    boundary_functions[1] = &inlet_velocity;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -364,8 +364,8 @@ NavierStokesSolver::assemble_system()
 /*     boundary_functions.clear(); */ /* The order is important because... what about the DoFs on the interface between inlet and wall?
                                    In this case we want wall bcs to win over the inlet, so we write it later. */
     Functions::ZeroFunction<dim> zero_function(dim + 1);
-    boundary_functions[12] = &zero_function;
-    boundary_functions[13] = &zero_function;
+    boundary_functions[3] = &zero_function;
+    boundary_functions[4] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -469,7 +469,7 @@ NavierStokesSolver::assemble_stokes_system()
           for (unsigned int f = 0; f < cell->n_faces(); ++f)
             {
               if (cell->face(f)->at_boundary() &&
-                  cell->face(f)->boundary_id() == 1)
+                  cell->face(f)->boundary_id() == 11)
                 {
                   fe_face_values.reinit(cell, f);
 
