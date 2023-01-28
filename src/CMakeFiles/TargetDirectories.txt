@@ -1,0 +1,3 @@
+/home/jellyfish/shared-folder/Navier-Stokes-dealii/src/CMakeFiles/rebuild_cache.dir
+/home/jellyfish/shared-folder/Navier-Stokes-dealii/src/CMakeFiles/edit_cache.dir
+/home/jellyfish/shared-folder/Navier-Stokes-dealii/src/CMakeFiles/proj.dir
