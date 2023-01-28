@@ -1,1 +1,1 @@
-SE = \frac{\sigma}{\sqrt{n}}
+SE = $\frac{\sigma}{\sqrt{n}}$
