@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/correct_mesh_yt.msh");
+    std::ifstream grid_in_file("../mesh/NavStokes2D-0_03.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -215,6 +215,8 @@ NavierStokesSolver::assemble_system()
 
   std::vector<Tensor<1, dim>> old_velocity_values(n_q);
 
+  inlet_velocity.set_time(time);
+
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
       if (!cell->is_locally_owned())
@@ -304,6 +306,10 @@ NavierStokesSolver::assemble_system()
                                   fe_values[velocity].divergence(i, q) *
                                   fe_values.JxW(q);
 
+              cell_residual(i) -= trace(present_velocity_gradients[q]) *
+                                  fe_values[pressure].value(i, q) *
+                                  fe_values.JxW(q);
+
               // Forcing term.
               cell_residual(i) += scalar_product(forcing_term_tensor,
                                                  fe_values[velocity].value(i, q)) *
@@ -354,18 +360,18 @@ NavierStokesSolver::assemble_system()
     // We interpolate first the inlet velocity condition alone, then the wall
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
-    boundary_functions[11] = &inlet_velocity;
+    boundary_functions[8] = &inlet_velocity;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
                                              ComponentMask(
                                                {true, true, false})); /* They're only applied to the velocity */
 
-/*     boundary_functions.clear(); */ /* The order is important because... what about the DoFs on the interface between inlet and wall?
+    boundary_functions.clear(); /* The order is important because... what about the DoFs on the interface between inlet and wall?
                                    In this case we want wall bcs to win over the inlet, so we write it later. */
     Functions::ZeroFunction<dim> zero_function(dim + 1);
-    boundary_functions[12] = &zero_function;
-    boundary_functions[13] = &zero_function;
+    boundary_functions[9] = &zero_function;
+    boundary_functions[11] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -563,9 +569,9 @@ NavierStokesSolver::solve_system()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(100000, 1e-2 * residual_vector.l2_norm());
+  SolverControl solver_control(100000, 1e-8 * residual_vector.l2_norm());
 
-  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
   PreconditionIdentity preconditioner;
 
@@ -591,7 +597,7 @@ void
 NavierStokesSolver::solve_newton()
 {
   const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-2;
+  const double       residual_tolerance = 1e-3;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
@@ -614,7 +620,7 @@ NavierStokesSolver::solve_newton()
 
           // delta_owned *= 0.1;
           solution_owned += delta_owned;
-          // solution_owned.add(0.001, delta_owned);
+          // solution_owned.add(0.5, delta_owned);
           solution = solution_owned;
         }
       else
