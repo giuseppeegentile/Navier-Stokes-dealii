@@ -359,7 +359,7 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(5000, 1e-6 * residual_vector.l2_norm());
+  SolverControl solver_control(1000000, 1e-6 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -367,33 +367,15 @@ Stokes::solve()
   // preconditioner.initialize(system_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1));
 
-  PreconditionBlockTriangular preconditioner;
-  preconditioner.initialize(system_matrix.block(0, 0),
-                            pressure_mass.block(1, 1),
-                            system_matrix.block(1, 0));
-
+  // PreconditionBlockTriangular preconditioner;
+  // preconditioner.initialize(system_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1),
+  //                           system_matrix.block(1, 0));
+  PreconditionIdentity preconditioner;
   pcout << "Solving the linear system" << std::endl;
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);
   pcout << "  " << solver_control.last_step() << " GMRES iterations"
-        << std::endl;
-  // SolverControl solver_control(system_matrix.m(),
-  //                                1e-4 * system_rhs.l2_norm(),
-  //                                true);
- 
-  //   SolverFGMRES<BlockVector<double>> gmres(solver_control);
-  //   SparseILU<double>                 pmass_preconditioner;
-  //   pmass_preconditioner.initialize(pressure_mass_matrix,
-  //                                   SparseILU<double>::AdditionalData());
- 
-  //   const BlockSchurPreconditioner<SparseILU<double>> preconditioner(
-  //     gamma,
-  //     viscosity,
-  //     system_matrix,
-  //     pressure_mass_matrix,
-  //     pmass_preconditioner);
- 
-  //   gmres.solve(system_matrix, newton_update, system_rhs, preconditioner);
-  //   std::cout << "FGMRES steps: " << solver_control.last_step() << std::endl;      
+        << std::endl;     
 }
 
 void
