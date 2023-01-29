@@ -253,7 +253,7 @@ NavierStokesSolver::assemble_system()
                                        fe_values.JxW(q);
 
                   // Viscosity term.
-                  cell_matrix(i, j) += nu * rho *
+                  cell_matrix(i, j) += nu * // rho *
                                        scalar_product(fe_values[velocity].gradient(i, q),
                                                       fe_values[velocity].gradient(j, q)) *
                                        fe_values.JxW(q);
@@ -287,7 +287,7 @@ NavierStokesSolver::assemble_system()
                 }
 
               // Time derivative term.
-              cell_residual(i) -= rho * (present_velocity_values[q] - old_velocity_values[q]) / deltat * 
+              cell_residual(i) -= rho * ((present_velocity_values[q] - old_velocity_values[q]) / deltat) * 
                                   fe_values[velocity].value(i, q) *
                                   fe_values.JxW(q);
 
@@ -356,11 +356,11 @@ NavierStokesSolver::assemble_system()
   {
     std::map<types::global_dof_index, double>           boundary_values;
     std::map<types::boundary_id, const Function<dim> *> boundary_functions;
-
+    Functions::ZeroFunction<dim> zero_function(dim + 1);
     // We interpolate first the inlet velocity condition alone, then the wall
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
-    boundary_functions[8] = &inlet_velocity;
+    boundary_functions[8] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -369,7 +369,7 @@ NavierStokesSolver::assemble_system()
 
     boundary_functions.clear(); /* The order is important because... what about the DoFs on the interface between inlet and wall?
                                    In this case we want wall bcs to win over the inlet, so we write it later. */
-    Functions::ZeroFunction<dim> zero_function(dim + 1);
+
     boundary_functions[9] = &zero_function;
     boundary_functions[11] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
@@ -382,6 +382,228 @@ NavierStokesSolver::assemble_system()
       boundary_values, jacobian_matrix, delta_owned, residual_vector, false);
   }
 }
+
+void
+NavierStokesSolver::solve_system()
+{
+  pcout << "===============================================" << std::endl;
+
+  SolverControl solver_control(100000, 1e-8 * residual_vector.l2_norm());
+
+  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+
+  PreconditionIdentity preconditioner;
+
+  // PreconditionBlockDiagonal preconditioner;
+  // preconditioner.initialize(jacobian_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1));
+
+
+  // PreconditionBlockTriangular preconditioner;
+  // preconditioner.initialize(jacobian_matrix.block(0, 0),
+  //                           pressure_mass.block(1, 1),
+  //                           jacobian_matrix.block(1, 0));
+
+  pcout << "Solving system..." << std::endl;
+  solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 
+  pcout << "   " << solver_control.last_step() << " GMRES iterations"
+        << std::endl;
+
+  solution = solution_owned;
+}
+
+void
+NavierStokesSolver::solve_newton()
+{
+  const unsigned int n_max_iters        = 1000;
+  const double       residual_tolerance = 1e-3;
+
+  unsigned int n_iter        = 0;
+  double       residual_norm = residual_tolerance + 1;
+
+
+
+  // We apply the boundary conditions to the initial guess (which is stored in
+  // solution_owned and solution).
+  {
+    IndexSet dirichlet_dofs = DoFTools::extract_boundary_dofs(dof_handler);
+
+    u_0.set_time(time);
+
+    TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
+    VectorTools::interpolate(dof_handler, u_0, vector_dirichlet);
+
+    for (const auto &idx : dirichlet_dofs)
+      solution_owned[idx] = vector_dirichlet[idx];
+
+    solution_owned.compress(VectorOperation::insert);
+    solution = solution_owned;
+  }
+
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
+    {
+      assemble_system();
+      residual_norm = residual_vector.l2_norm();
+
+      pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
+            << " - ||r|| = " << std::scientific << std::setprecision(6)
+            << residual_norm << std::flush;
+
+      // We actually solve the system only if the residual is larger than the
+      // tolerance.
+      if (residual_norm > residual_tolerance)
+        {
+          solve_system();
+          pcout << "System solved!" << std::endl;
+
+          // delta_owned *= 0.1;
+          solution_owned += delta_owned;
+          // solution_owned.add(0.5, delta_owned);
+          solution = solution_owned;
+        }
+      else
+        {
+          pcout << " < tolerance" << std::endl;
+        }
+
+      ++n_iter;
+    }
+}
+
+void
+NavierStokesSolver::solve()// We apply the boundary conditions to the initial guess (which is stored in
+      // solution_owned and solution).
+      {
+        IndexSet dirichlet_dofs = DoFTools::extract_boundary_dofs(dof_handler);
+
+        u_0.set_time(time);
+
+        TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution);
+        VectorTools::interpolate(dof_handler, u_0, vector_dirichlet);
+
+        for (const auto &idx : dirichlet_dofs)
+          solution[idx] = vector_dirichlet[idx];
+
+        solution.compress(VectorOperation::insert);
+      
+
+  pcout << "===============================================" << std::endl;
+
+  time = 0.0;
+
+/*   // Finding the initial condition (small Reynolds number).
+  {
+    pcout << "Finding the initial condition" << std::endl;
+
+    assemble_stokes_system();
+    solve_stokes_system();
+
+    pcout << "-----------------------------------------------" << std::endl;
+  } */
+
+  // Apply the initial condition.
+  {
+    pcout << "Applying the initial condition" << std::endl;
+
+    VectorTools::interpolate(dof_handler, u_0, solution_owned);
+    solution = solution_owned;
+
+    // Output the initial solution.
+    output(0, 0.0);
+    pcout << "-----------------------------------------------" << std::endl;
+  }
+  
+
+  unsigned int time_step = 0;
+
+  while (time < T - 0.5 * deltat)
+    {
+      time += deltat;
+      ++time_step;
+
+      // Store the old solution, so that it is available for assembly.
+      solution_old = solution;
+
+      pcout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
+            << std::fixed << time << std::endl;
+
+      // At every time step, we invoke Newton's method to solve the non-linear
+      // problem.
+      solve_newton();
+
+      output(time_step, time);
+
+      pcout << std::endl;
+    }
+}
+
+void
+NavierStokesSolver::output(const unsigned int &time_step, const double &time) const
+{
+  pcout << "===============================================" << std::endl;
+
+  DataOut<dim> data_out;
+
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    data_component_interpretation(
+      dim, DataComponentInterpretation::component_is_part_of_vector);
+  data_component_interpretation.push_back(
+    DataComponentInterpretation::component_is_scalar);
+  std::vector<std::string> names = {"velocity",
+                                    "velocity",
+                                    "pressure"};
+
+  data_out.add_data_vector(dof_handler,
+                           solution,
+                           names,
+                           data_component_interpretation);
+
+  std::vector<unsigned int> partition_int(mesh.n_active_cells());
+  GridTools::get_subdomain_association(mesh, partition_int);
+  const Vector<double> partitioning(partition_int.begin(), partition_int.end());
+  data_out.add_data_vector(partitioning, "partitioning");
+
+  data_out.build_patches();
+
+  std::string output_file_name = std::to_string(time_step);
+
+  // Pad with zeros.
+  output_file_name = "output-" + std::string(4 - output_file_name.size(), '0') +
+                     output_file_name;
+
+  DataOutBase::DataOutFilter data_filter(
+    DataOutBase::DataOutFilterFlags(/*filter_duplicate_vertices = */ false,
+                                    /*xdmf_hdf5_output = */ true));
+  data_out.write_filtered_data(data_filter);
+  data_out.write_hdf5_parallel(data_filter,
+                               output_file_name + ".h5",
+                               MPI_COMM_WORLD);
+
+  std::vector<XDMFEntry> xdmf_entries({data_out.create_xdmf_entry(
+    data_filter, output_file_name + ".h5", time, MPI_COMM_WORLD)});
+  data_out.write_xdmf_file(xdmf_entries,
+                           output_file_name + ".xdmf",
+                           MPI_COMM_WORLD);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void
 NavierStokesSolver::assemble_stokes_system()
@@ -508,6 +730,7 @@ NavierStokesSolver::assemble_stokes_system()
 
   // Dirichlet boundary conditions.
   {
+     Functions::ZeroFunction<dim> zero_function(dim + 1);
     std::map<types::global_dof_index, double>           boundary_values;
     std::map<types::boundary_id, const Function<dim> *> boundary_functions;
 
@@ -522,7 +745,7 @@ NavierStokesSolver::assemble_stokes_system()
                                                {true, true, false}));
 
     boundary_functions.clear();
-    Functions::ZeroFunction<dim> zero_function(dim + 1);
+   
     boundary_functions[2] = &zero_function;
     boundary_functions[3] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
@@ -563,278 +786,3 @@ NavierStokesSolver::solve_stokes_system()
 
   output(0., 0.);
 }
-
-void
-NavierStokesSolver::solve_system()
-{
-  pcout << "===============================================" << std::endl;
-
-  SolverControl solver_control(100000, 1e-8 * residual_vector.l2_norm());
-
-  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
-
-  PreconditionIdentity preconditioner;
-
-  // PreconditionBlockDiagonal preconditioner;
-  // preconditioner.initialize(jacobian_matrix.block(0, 0),
-  //                           pressure_mass.block(1, 1));
-
-
-  // PreconditionBlockTriangular preconditioner;
-  // preconditioner.initialize(jacobian_matrix.block(0, 0),
-  //                           pressure_mass.block(1, 1),
-  //                           jacobian_matrix.block(1, 0));
-
-  pcout << "Solving system..." << std::endl;
-  solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 
-  pcout << "   " << solver_control.last_step() << " GMRES iterations"
-        << std::endl;
-
-  solution = solution_owned;
-}
-
-void
-NavierStokesSolver::solve_newton()
-{
-  const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-3;
-
-  unsigned int n_iter        = 0;
-  double       residual_norm = residual_tolerance + 1;
-
-  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
-    {
-      assemble_system();
-      residual_norm = residual_vector.l2_norm();
-
-      pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
-            << " - ||r|| = " << std::scientific << std::setprecision(6)
-            << residual_norm << std::flush;
-
-      // We actually solve the system only if the residual is larger than the
-      // tolerance.
-      if (residual_norm > residual_tolerance)
-        {
-          solve_system();
-          pcout << "System solved!" << std::endl;
-
-          // delta_owned *= 0.1;
-          solution_owned += delta_owned;
-          // solution_owned.add(0.5, delta_owned);
-          solution = solution_owned;
-        }
-      else
-        {
-          pcout << " < tolerance" << std::endl;
-        }
-
-      ++n_iter;
-    }
-}
-
-void
-NavierStokesSolver::solve()
-{
-  pcout << "===============================================" << std::endl;
-
-  time = 0.0;
-
-/*   // Finding the initial condition (small Reynolds number).
-  {
-    pcout << "Finding the initial condition" << std::endl;
-
-    assemble_stokes_system();
-    solve_stokes_system();
-
-    pcout << "-----------------------------------------------" << std::endl;
-  } */
-
-  // Apply the initial condition.
-  {
-    pcout << "Applying the initial condition" << std::endl;
-
-    VectorTools::interpolate(dof_handler, u_0, solution_owned);
-    solution = solution_owned;
-
-    // Output the initial solution.
-    output(0, 0.0);
-    pcout << "-----------------------------------------------" << std::endl;
-  }
-
-  unsigned int time_step = 0;
-
-  while (time < T - 0.5 * deltat)
-    {
-      time += deltat;
-      ++time_step;
-
-      // Store the old solution, so that it is available for assembly.
-      solution_old = solution;
-
-      pcout << "n = " << std::setw(3) << time_step << ", t = " << std::setw(5)
-            << std::fixed << time << std::endl;
-
-      // At every time step, we invoke Newton's method to solve the non-linear
-      // problem.
-      solve_newton();
-
-      output(time_step, time);
-
-      pcout << std::endl;
-    }
-}
-
-void
-NavierStokesSolver::output(const unsigned int &time_step, const double &time) const
-{
-  pcout << "===============================================" << std::endl;
-
-  DataOut<dim> data_out;
-
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    data_component_interpretation(
-      dim, DataComponentInterpretation::component_is_part_of_vector);
-  data_component_interpretation.push_back(
-    DataComponentInterpretation::component_is_scalar);
-  std::vector<std::string> names = {"velocity",
-                                    "velocity",
-                                    "pressure"};
-
-  data_out.add_data_vector(dof_handler,
-                           solution,
-                           names,
-                           data_component_interpretation);
-
-  std::vector<unsigned int> partition_int(mesh.n_active_cells());
-  GridTools::get_subdomain_association(mesh, partition_int);
-  const Vector<double> partitioning(partition_int.begin(), partition_int.end());
-  data_out.add_data_vector(partitioning, "partitioning");
-
-  data_out.build_patches();
-
-  std::string output_file_name = std::to_string(time_step);
-
-  // Pad with zeros.
-  output_file_name = "output-" + std::string(4 - output_file_name.size(), '0') +
-                     output_file_name;
-
-  DataOutBase::DataOutFilter data_filter(
-    DataOutBase::DataOutFilterFlags(/*filter_duplicate_vertices = */ false,
-                                    /*xdmf_hdf5_output = */ true));
-  data_out.write_filtered_data(data_filter);
-  data_out.write_hdf5_parallel(data_filter,
-                               output_file_name + ".h5",
-                               MPI_COMM_WORLD);
-
-  std::vector<XDMFEntry> xdmf_entries({data_out.create_xdmf_entry(
-    data_filter, output_file_name + ".h5", time, MPI_COMM_WORLD)});
-  data_out.write_xdmf_file(xdmf_entries,
-                           output_file_name + ".xdmf",
-                           MPI_COMM_WORLD);
-}
-
-/* void NavierStokesSolver::assemble_system() {
-
-      pcout << "===============================================" << std::endl;
-    pcout << "Assembling the system" << std::endl;
-
-    //clear the system matrix and rhs, because these change every iteration
-    // system_matrix.reinit(sparsity_pattern);
-    system_rhs.reinit(dof_handler.n_dofs());
-    const int dofs_per_cell = fe->dofs_per_cell;
-    const int n_q_points = quadrature->size();
-    const int n_q_points_face = quadrature_face->size();
-    std::vector<Tensor<1,dim> > previous_newton_velocity_values (n_q_points);
-    std::vector<Tensor< 2, dim> > previous_newton_velocity_gradients (n_q_points);
-    // std::vector<Vector<double> > rhs_values (n_q_points, Vector<double>(dim+1));
-    std::vector<Tensor<2,dim> > grad_phi_u(dofs_per_cell);
-    std::vector<double> div_phi_u(dofs_per_cell);
-    std::vector<double> phi_p(dofs_per_cell);
-    std::vector<Tensor<1,dim> > phi_u(dofs_per_cell);
-    Vector<double> cell_rhs(dofs_per_cell);
-    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-    const FEValuesExtractors::Vector velocities(0);
-    const FEValuesExtractors::Scalar pressure(dim);
-    FEValues<dim> fe_values(*fe, *quadrature, update_values |
-                                update_gradients | update_JxW_values | update_quadrature_points);
-    typename DoFHandler<dim>::active_cell_iterator
-    cell = dof_handler.begin_active(), endc = dof_handler.end();
-
-    for (; cell!=endc; ++cell) {
-        fe_values.reinit(cell);
-        cell_matrix = 0;
-        cell_rhs = 0;
-        //Calculate velocity values and gradients from previous newton iteration
-        //at each quadrature point in cell
-        fe_values[velocities].get_function_values(previous_newton_step,
-            previous_newton_velocity_values);
-        fe_values[velocities].get_function_gradients(previous_newton_step,
-            previous_newton_velocity_gradients);
-        // forcing_term.vector_value(fe_values.get_quadrature_points(), rhs_values);
-        //calculate cell contribution to system
-        for (int q = 0; q < n_q_points; q++) {
-          Vector<double> forcing_term_loc(dim);
-          forcing_term.vector_value(fe_values.quadrature_point(q),
-                                    forcing_term_loc);
-          Tensor<1, dim> forcing_term_tensor;
-          for (unsigned int d = 0; d < dim; ++d)
-            forcing_term_tensor[d] = forcing_term_loc[d];
-            for (int k=0; k<dofs_per_cell; k++) {
-                grad_phi_u[k] = fe_values[velocities].gradient (k, q);
-                div_phi_u[k] = fe_values[velocities].divergence (k, q);
-                phi_p[k] = fe_values[pressure].value (k, q);
-                phi_u[k] = fe_values[velocities].value (k, q);
-            }
-            for (int i = 0; i < dofs_per_cell; i++) {
-                for (int j = 0; j < dofs_per_cell; j++) {
-                    cell_matrix(i,j) +=
-                    (nu*scalar_product(grad_phi_u[i],grad_phi_u[j])
-                    + phi_u[j]
-                    *transpose(
-                    previous_newton_velocity_gradients[q])
-                    *phi_u[i]
-                    + previous_newton_velocity_values[q]
-                    *transpose(grad_phi_u[j])*phi_u[i]
-                    - phi_p[j]*div_phi_u[i]
-                    - phi_p[i]*div_phi_u[j])
-                    *fe_values.JxW(q);
-                }
-                int equation_i = fe->system_to_component_index(i).first;
-                cell_rhs(i) += (scalar_product(forcing_term_tensor, fe_values[velocities].value(i, q)) + previous_newton_velocity_values[q] *
-                                            transpose(previous_newton_velocity_gradients[q])*phi_u[i]) *fe_values.JxW(q);
-            }
-        }
-        cell->get_dof_indices(local_dof_indices);
-        //constraints.distribute_local_to_global(cell_matrix, cell_rhs, local_dof_indices, system_matrix, system_rhs);
-          system_matrix.compress(VectorOperation::add);
-        system_rhs.compress(VectorOperation::add);
-    }
-} */
-
-
-
-/* void NavierStokesSolver::run_newton_loop(int cycle) {
-    int MAX_ITER = 10;
-    double TOL = 1e-8;
-    int iter = 0;
-    double residual = 0;
-    //solve Stokes equations for initial guess
-    assemble_stokes_system();
-    solve();
-    previous_newton_step = solution;
-    while (iter == 0 || (residual > TOL && iter < MAX_ITER)) {
-        assemble_system();
-        solve();
-        TrilinosWrappers::MPI::BlockVector res_vec = solution;
-        res_vec -= previous_newton_step;
-        residual = res_vec.l2_norm()/(dof_handler.n_dofs());
-        previous_newton_step = solution;
-        iter++;
-        
-        pcout << "Residual = " << std::to_string(residual) << std::endl;
-    }
-    if (iter == MAX_ITER) {
-        pcout << "WARNING: Newton’s method failed to converge\n" << std::endl;
-    }
-} */

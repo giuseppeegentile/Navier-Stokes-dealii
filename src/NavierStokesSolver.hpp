@@ -516,6 +516,8 @@ public:
   protected:
   };
 
+
+
   // Block-diagonal preconditioner.
   class PreconditionBlockDiagonal
   {
@@ -703,7 +705,7 @@ protected:
   const double nu = 0.001;
 
   // Fluid density [kg/m3].
-  const double rho = 1;
+  const double rho = 0.01;
 
   // Outlet pressure [Pa].
   const double p_out = 10;
