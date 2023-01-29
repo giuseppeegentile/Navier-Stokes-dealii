@@ -6,7 +6,7 @@ main(int argc, char *argv[])
 {
   Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv);
 
-  std::string file_name="nav-stokes";
+  std::string output_name="nav-stokes";
 
   const unsigned int N               = 4;
   const unsigned int degree_velocity = 2;
@@ -16,7 +16,7 @@ main(int argc, char *argv[])
 
   problem.setup();
   problem.solve_newton();
-  problem.output(file_name);
+  problem.output(output_name);
 
   return 0;
 }

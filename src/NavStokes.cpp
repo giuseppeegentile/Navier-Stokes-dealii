@@ -13,7 +13,7 @@ Stokes::setup()
     grid_in.attach_triangulation(mesh_serial);
 
     const std::string mesh_file_name =
-      "../mesh/NavStokes2D-0_03.msh";
+      "../mesh/NavStokes2D-0_1.msh";
 
     std::ifstream grid_in_file(mesh_file_name);
     grid_in.read_msh(grid_in_file);
@@ -258,12 +258,12 @@ Stokes::assemble()
                                   fe_values[velocity].divergence(i, q) * 
                                   fe_values.JxW(q);
               // Approssimation of Augmented Lagrangian term from tutorial
-              cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
-                                  fe_values[velocity].divergence(j,q) *
-                                  fe_values.JxW(q);
+              // cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
+              //                     fe_values[velocity].divergence(j,q) *
+              //                     fe_values.JxW(q);
 
-              cell_pressure_mass_matrix(i, j) +=fe_values[pressure].value(j, q) * 
-                                                  fe_values[velocity].divergence(i, q) *
+              cell_pressure_mass_matrix(i, j) +=  fe_values[pressure].value(j, q) * 
+                                                  fe_values[pressure].value(i, q) *
                                                   fe_values.JxW(q);
               }
               double present_velocity_divergence = trace(present_velocity_gradients[q]);
@@ -336,7 +336,8 @@ Stokes::assemble()
     // We interpolate first the inlet velocity condition alone, then the wall
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
-    boundary_functions[8] = &inlet_velocity;
+    Functions::ZeroFunction<dim> zero_function(dim + 1);
+    boundary_functions[8] = &zero_function;//&inlet_velocity;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -344,7 +345,7 @@ Stokes::assemble()
                                                {true, true, false}));
 
     boundary_functions.clear();
-    Functions::ZeroFunction<dim> zero_function(dim + 1);
+    
     boundary_functions[9] =&zero_function;
     boundary_functions[11]=&zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
@@ -363,7 +364,7 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(1000000, 1e-6 * residual_vector.l2_norm());
+  SolverControl solver_control(2000, 1e-4 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -375,12 +376,12 @@ Stokes::solve()
   // preconditioner.initialize(system_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1),
   //                           system_matrix.block(1, 0));
-  //PreconditionIdentity preconditioner;
-  PersonalizedPreconditioner preconditioner;
-  preconditioner.initialize(system_matrix.block(0,0),
-                            system_matrix.block(0,1),
-                            pressure_mass.block(1,1),
-                            nu);
+  //PreconditionBlockIdentity preconditioner;
+   PersonalizedPreconditioner preconditioner;
+   preconditioner.initialize(system_matrix.block(0,0),
+                             system_matrix.block(0,1),
+                             pressure_mass.block(1,1),
+                             nu);
 
   pcout << "Solving the linear system" << std::endl;
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);

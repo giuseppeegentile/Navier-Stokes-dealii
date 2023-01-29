@@ -145,12 +145,26 @@ public:
     // Application of the preconditioner: we just copy the input vector (src)
     // into the output vector (dst).
     void
+    vmult(TrilinosWrappers::MPI::Vector &      dst,
+          const TrilinosWrappers::MPI::Vector &src) const
+    {
+      dst = src;
+    }
+  protected:
+  };
+
+  // Identity block preconditioner.
+  class PreconditionBlockIdentity
+  {
+  public:
+    // Application of the preconditioner: we just copy the input vector (src)
+    // into the output vector (dst).
+    void
     vmult(TrilinosWrappers::MPI::BlockVector &      dst,
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
       dst = src;
     }
-
   protected:
   };
 
@@ -301,30 +315,30 @@ public:
           const TrilinosWrappers::MPI::BlockVector &src)const
     { 
       //computing  dst.block(1) that means S^-1 * xp
-      SolverControl solver_control_pressure(1000,
-                                            1e-6 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
-        solver_control_pressure);
+      SolverControl solver_control_pressure(1000, 1e-6 * src.block(1).l2_norm());
+      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(solver_control_pressure);
       
       dst.block(1) = 0.0;
       solver_cg_pressure.solve(*M_p,
                                dst.block(1),
                                src.block(1),
                                preconditioner_pressure);
-      
       dst.block(1) *= -((*nu) + gamma);
       //computing dst.block(0) that means A^-1 * xu + B^-T * xp
-      u_tmp.reinit(src.block(0));
+      u_tmp=src.block(0);
       Bt->vmult(u_tmp, dst.block(1));
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      SolverControl solver_control_A(1000, 1e-4 * u_tmp.l2_norm());
+      SolverControl solver_control_A(1000, 1e-2 * u_tmp.l2_norm());
       //TrilinosWrappers::SolverDirect::AdditionalData AdditionalData;
       //non so bene cosa sia serve per calcolare facilmente A tilde^-1, A tilde non è simemtrica
-      TrilinosWrappers::SolverDirect A_inverse(solver_control_A);
-      A_inverse.initialize(*A);
-      A_inverse.solve(dst.block(0),u_tmp);
+      // TrilinosWrappers::SolverDirect A_inverse(solver_control_A);ù
+      PreconditionIdentity preconditioner;
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
+      solver.solve(*A , dst.block(0), u_tmp, preconditioner);
+      // A_inverse.initialize(*A);
+      // A_inverse.solve(dst.block(0),u_tmp);
     }
 
     private:
@@ -334,7 +348,7 @@ public:
     const TrilinosWrappers::SparseMatrix *M_p;
     //preconditioner for pressure mass matrix
     TrilinosWrappers::PreconditionILU preconditioner_pressure;
-
+    
     const double *nu;
     const double gamma=1.0;
     
