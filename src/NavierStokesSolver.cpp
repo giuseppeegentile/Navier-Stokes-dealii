@@ -416,25 +416,36 @@ void
 NavierStokesSolver::solve_newton()
 {
   const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-3;
+  const double       residual_tolerance = 1e-5;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
 
-
+  Functions::ZeroFunction<dim> zero_function(dim + 1);
 
   // We apply the boundary conditions to the initial guess (which is stored in
   // solution_owned and solution).
   {
-    IndexSet dirichlet_dofs = DoFTools::extract_boundary_dofs(dof_handler);
+    IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler);
+    IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
+                                                                        ComponentMask({true, true, false}),
+                                                                       {0}
+                                                                       );
 
     u_0.set_time(time);
-
+    inlet_velocity.set_time(time);
     TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
-    VectorTools::interpolate(dof_handler, u_0, vector_dirichlet);
+    TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
 
-    for (const auto &idx : dirichlet_dofs)
+    VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
+    VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
+
+    for (const auto &idx : dirichlet_dofs_zero)
       solution_owned[idx] = vector_dirichlet[idx];
+
+    for (const auto &idx : dirichlet_dofs_inlet)
+      solution_owned[idx] = vector_inlet[idx];
+
 
     solution_owned.compress(VectorOperation::insert);
     solution = solution_owned;
