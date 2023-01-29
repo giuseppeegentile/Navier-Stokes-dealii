@@ -257,8 +257,12 @@ Stokes::assemble()
               cell_matrix(i, j) +=fe_values[pressure].value(j, q) *
                                   fe_values[velocity].divergence(i, q) * 
                                   fe_values.JxW(q);
+              // Approssimation of Augmented Lagrangian term from tutorial
+              cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
+                                  fe_values[velocity].divergence(j,q) *
+                                  fe_values.JxW(q);
 
-                cell_pressure_mass_matrix(i, j) +=fe_values[pressure].value(j, q) * 
+              cell_pressure_mass_matrix(i, j) +=fe_values[pressure].value(j, q) * 
                                                   fe_values[velocity].divergence(i, q) *
                                                   fe_values.JxW(q);
               }
@@ -371,7 +375,13 @@ Stokes::solve()
   // preconditioner.initialize(system_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1),
   //                           system_matrix.block(1, 0));
-  PreconditionIdentity preconditioner;
+  //PreconditionIdentity preconditioner;
+  PersonalizedPreconditioner preconditioner;
+  preconditioner.initialize(system_matrix.block(0,0),
+                            system_matrix.block(0,1),
+                            pressure_mass.block(1,1),
+                            nu);
+
   pcout << "Solving the linear system" << std::endl;
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);
   pcout << "  " << solver_control.last_step() << " GMRES iterations"

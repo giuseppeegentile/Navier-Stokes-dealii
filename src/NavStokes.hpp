@@ -154,6 +154,7 @@ public:
   protected:
   };
 
+  
   // Block-diagonal preconditioner.
   class PreconditionBlockDiagonal
   {
@@ -246,7 +247,7 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      SolverControl                           solver_control_pressure(1000,
+      SolverControl            solver_control_pressure(1000,
                                             1e-2 * src.block(1).l2_norm());
       SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
@@ -276,6 +277,72 @@ public:
     mutable TrilinosWrappers::MPI::Vector tmp;
   };
 
+
+  //===================================================
+  class PersonalizedPreconditioner
+  {
+    public:
+      void initialize(const TrilinosWrappers::SparseMatrix &A_/*(0,0) block system matrix*/,
+                      const TrilinosWrappers::SparseMatrix &Bt_/*(0,1) block in system_matrix*/,
+                      const TrilinosWrappers::SparseMatrix &M_p_, /*pressure mass*/ 
+                      const double &nu_)
+      {
+        A = &A_;
+        Bt = &Bt_;
+        M_p = &M_p_;
+        nu= &nu_;
+        preconditioner_pressure.initialize(M_p_);
+        
+      }
+    //Application of preconditioner
+    //dst is the result of the preconditoning, src are the normal unknows
+    void
+    vmult(TrilinosWrappers::MPI::BlockVector &dst,
+          const TrilinosWrappers::MPI::BlockVector &src)const
+    { 
+      //computing  dst.block(1) that means S^-1 * xp
+      SolverControl solver_control_pressure(1000,
+                                            1e-6 * src.block(1).l2_norm());
+      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
+        solver_control_pressure);
+      
+      dst.block(1) = 0.0;
+      solver_cg_pressure.solve(*M_p,
+                               dst.block(1),
+                               src.block(1),
+                               preconditioner_pressure);
+      
+      dst.block(1) *= -((*nu) + gamma);
+      //computing dst.block(0) that means A^-1 * xu + B^-T * xp
+      u_tmp.reinit(src.block(0));
+      Bt->vmult(u_tmp, dst.block(1));
+      u_tmp *= -1.0;
+      u_tmp += src.block(0);
+      
+      SolverControl solver_control_A(1000, 1e-4 * u_tmp.l2_norm());
+      //TrilinosWrappers::SolverDirect::AdditionalData AdditionalData;
+      //non so bene cosa sia serve per calcolare facilmente A tilde^-1, A tilde non è simemtrica
+      TrilinosWrappers::SolverDirect A_inverse(solver_control_A);
+      A_inverse.initialize(*A);
+      A_inverse.solve(dst.block(0),u_tmp);
+    }
+
+    private:
+    const TrilinosWrappers::SparseMatrix *A;
+    const TrilinosWrappers::SparseMatrix *Bt;
+    //pressure mass matrix
+    const TrilinosWrappers::SparseMatrix *M_p;
+    //preconditioner for pressure mass matrix
+    TrilinosWrappers::PreconditionILU preconditioner_pressure;
+
+    const double *nu;
+    const double gamma=1.0;
+    
+    //temporary vector
+    mutable TrilinosWrappers::MPI::Vector u_tmp;
+    mutable TrilinosWrappers::MPI::Vector dst_temp;
+  };
+ //===========================================================================00
   // Constructor.
   Stokes(const unsigned int &N_,
          const unsigned int &degree_velocity_,
@@ -412,102 +479,5 @@ protected:
   // convenience, but in practice we only look at the pressure-pressure block.
   TrilinosWrappers::BlockSparseMatrix stokes_pressure_mass;
 };
-
-
-// template <class PreconditionerMp>
-// class BlockSchurPreconditioner : public Subscriptor
-// {
-// public:
-//   BlockSchurPreconditioner(double                           gamma,
-//                            double                           viscosity,
-//                            const TrilinosWrappers::BlockSparseMatrix &S,
-//                            const TrilinosWrappers::BlockSparseMatrix &     P,
-//                            const PreconditionerMp &         Mppreconditioner)
-//     : gamma(gamma)
-//   , viscosity(viscosity)
-//   , stokes_matrix(S)
-//   , pressure_mass_matrix(P)
-//   , mp_preconditioner(Mppreconditioner)
-// {
-//   A_inverse.initialize(stokes_matrix.block(0, 0));
-// }
- 
-// void vmult(TrilinosWrappers::MPI::BlockVector &dst, const TrilinosWrappers::MPI::BlockVector &src) const{
-//     TrilinosWrappers::MPI::BlockVector utmp(src.block(0));
-
-//   {
-//     SolverControl solver_control(1000, 1e-6 * src.block(1).l2_norm());
-//     SolverCG<Vector<double>> cg(solver_control);
-
-//     dst.block(1) = 0.0;
-//     cg.solve(pressure_mass_matrix,
-//               dst.block(1),
-//               src.block(1),
-//               mp_preconditioner);
-//     dst.block(1) *= -(viscosity + gamma);
-//   }
-
-//   {
-//     stokes_matrix.block(0, 1).vmult(utmp, dst.block(1));
-//     utmp *= -1.0;
-//     utmp += src.block(0);
-//   }
-
-//   A_inverse.vmult(dst.block(0), utmp);
-//   }
- 
-// private:
-//   const double                     gamma;
-//   const double                     viscosity;
-//   const BlockSparseMatrix<double> &stokes_matrix;
-//   const SparseMatrix<double> &     pressure_mass_matrix;
-//   const PreconditionerMp &         mp_preconditioner;
-//   TrilinosWrappers::SparseMatrix              A_inverse;
-// };
-
-// template <class PreconditionerMp>
-// BlockSchurPreconditioner<PreconditionerMp>::BlockSchurPreconditioner(
-//   double                           gamma,
-//   double                           viscosity,
-//   const BlockSparseMatrix<double> &S,
-//   const SparseMatrix<double> &     P,
-//   const PreconditionerMp &         Mppreconditioner)
-//   : gamma(gamma)
-//   , viscosity(viscosity)
-//   , stokes_matrix(S)
-//   , pressure_mass_matrix(P)
-//   , mp_preconditioner(Mppreconditioner)
-// {
-//   A_inverse.initialize(stokes_matrix.block(0, 0));
-// }
-
-// template <class PreconditionerMp>
-// void BlockSchurPreconditioner<PreconditionerMp>::vmult(
-//   BlockVector<double> &      dst,
-//   const BlockVector<double> &src) const
-// {
-//   Vector<double> utmp(src.block(0));
-
-//   {
-//     SolverControl solver_control(1000, 1e-6 * src.block(1).l2_norm());
-//     SolverCG<Vector<double>> cg(solver_control);
-
-//     dst.block(1) = 0.0;
-//     cg.solve(pressure_mass_matrix,
-//               dst.block(1),
-//               src.block(1),
-//               mp_preconditioner);
-//     dst.block(1) *= -(viscosity + gamma);
-//   }
-
-//   {
-//     stokes_matrix.block(0, 1).vmult(utmp, dst.block(1));
-//     utmp *= -1.0;
-//     utmp += src.block(0);
-//   }
-
-//   A_inverse.vmult(dst.block(0), utmp);
-// }
-
 
 #endif
