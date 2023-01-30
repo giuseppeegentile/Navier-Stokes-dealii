@@ -253,6 +253,11 @@ Stokes::assemble()
                                               fe_values[velocity].gradient(i, q)) 
                                 * fe_values.JxW(q);
 
+              cell_matrix(i, j) +=rho*
+                                present_velocity_gradients[q] * 
+                                fe_values[velocity].value(j, q) * 
+                                fe_values[velocity].value(i, q) * 
+                                fe_values.JxW(q);
 
               cell_matrix(i, j) +=rho* 
                                 present_velocity_values[q] * 
@@ -260,17 +265,13 @@ Stokes::assemble()
                                 fe_values[velocity].value(i, q) * 
                                 fe_values.JxW(q);
 
-              cell_matrix(i, j) +=rho*
-                                present_velocity_gradients[q] * 
-                                fe_values[velocity].value(j, q) * 
-                                fe_values[velocity].value(i, q) * 
-                                fe_values.JxW(q);
+              
 
-              cell_matrix(i, j) -=fe_values[pressure].value(j, q) *
-                                  fe_values[velocity].divergence(i, q) * 
-                                  fe_values.JxW(q);
+              cell_matrix(i, j) -= fe_values[pressure].value(j, q) *
+                                   fe_values[velocity].divergence(i, q) * 
+                                   fe_values.JxW(q);
 
-              cell_matrix(i, j) -= fe_values[pressure].value(i, q) *
+              cell_matrix(i, j) -= fe_values[pressure].value(i, q) * //minus because lab-09 is like that
                                    fe_values[velocity].divergence(j, q) *
                                    fe_values.JxW(q);
 
@@ -384,7 +385,7 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(200000, 1e-4 * residual_vector.l2_norm());
+  ReductionControl solver_control(20000,1e-10, 1e-4 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -392,10 +393,11 @@ Stokes::solve()
   // preconditioner.initialize(system_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1));
 
-   PreconditionBlockTriangular preconditioner;
-   preconditioner.initialize(system_matrix.block(0, 0),
+  PreconditionBlockTriangular preconditioner;
+  preconditioner.initialize(system_matrix.block(0, 0),
                              pressure_mass.block(1, 1),
                              system_matrix.block(1, 0));
+    
   //PreconditionBlockIdentity preconditioner;
   // PersonalizedPreconditioner preconditioner;
   // preconditioner.initialize(system_matrix.block(0,0),
@@ -414,18 +416,18 @@ Stokes::solve_newton()
 {
   pcout << "===============================================" << std::endl;
   
-  // Search the initial condition (small Reynold's number).
-  {
-    pcout << "Searching the initial condition" << std::endl;
+  // // Search the initial condition (small Reynold's number).
+  // {
+  //   pcout << "Searching the initial condition" << std::endl;
 
-    assemble_stokes_system();
-    solve_stokes_system();
-    output("stokes");
-    pcout << "-----------------------------------------------" << std::endl;
-  }
+  //   assemble_stokes_system();
+  //   solve_stokes_system();
+  //   output("stokes");
+  //   pcout << "-----------------------------------------------" << std::endl;
+  // }
 
   const unsigned int n_max_iters        = 10000;
-  const double       residual_tolerance = 1e-3;
+  const double       residual_tolerance = 1e-2;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
