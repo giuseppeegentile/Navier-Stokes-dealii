@@ -107,9 +107,20 @@ Stokes::setup()
 
     pcout << "  Initializing the sparsity pattern" << std::endl;
 
+    Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1);
+    for (unsigned int c = 0; c < dim + 1; ++c)
+      {
+        for (unsigned int d = 0; d < dim + 1; ++d)
+          {
+            if (c == dim && d == dim) // pressure-pressure term
+              coupling[c][d] = DoFTools::none;
+            else // other combinations
+              coupling[c][d] = DoFTools::always;
+          }
+      }
     TrilinosWrappers::BlockSparsityPattern sparsity(block_owned_dofs, /* !!! It's not the single IndexSet. */
                                                     MPI_COMM_WORLD);
-    DoFTools::make_sparsity_pattern(dof_handler, sparsity);
+    DoFTools::make_sparsity_pattern(dof_handler,coupling, sparsity);
     sparsity.compress();
 
     // Velocity DoFs interact with other velocity DoFs (the weak formulation has
@@ -118,7 +129,7 @@ Stokes::setup()
     // DoFs do not interact with other pressure DoFs (there are no terms
     // involving p times q). We build a table to store this information, so that
     // the sparsity pattern can be built accordingly.
-    Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1);
+    //Table<2, DoFTools::Coupling> coupling(dim + 1, dim + 1);
     for (unsigned int c = 0; c < dim + 1; ++c)
       {
         for (unsigned int d = 0; d < dim + 1; ++d)
@@ -147,7 +158,7 @@ Stokes::setup()
           }
       }
     TrilinosWrappers::BlockSparsityPattern sparsity_pressure_mass(block_owned_dofs, MPI_COMM_WORLD);
-    DoFTools::make_sparsity_pattern(dof_handler, sparsity_pressure_mass);
+    DoFTools::make_sparsity_pattern(dof_handler,coupling, sparsity_pressure_mass);
     sparsity_pressure_mass.compress();
 
     pcout << "  Initializing the matrices" << std::endl;
@@ -236,6 +247,7 @@ Stokes::assemble()
 
       for (unsigned int i = 0; i < dofs_per_cell; ++i) {
           for (unsigned int j = 0; j < dofs_per_cell; ++j) {
+
               cell_matrix(i, j) +=nu * rho * 
                                 scalar_product(fe_values[velocity].gradient(j, q), 
                                               fe_values[velocity].gradient(i, q)) 
@@ -254,10 +266,15 @@ Stokes::assemble()
                                 fe_values[velocity].value(i, q) * 
                                 fe_values.JxW(q);
 
-              cell_matrix(i, j) +=fe_values[pressure].value(j, q) *
+              cell_matrix(i, j) -=fe_values[pressure].value(j, q) *
                                   fe_values[velocity].divergence(i, q) * 
                                   fe_values.JxW(q);
-              // Approssimation of Augmented Lagrangian term from tutorial
+
+              cell_matrix(i, j) -= fe_values[pressure].value(i, q) *
+                                   fe_values[velocity].divergence(j, q) *
+                                   fe_values.JxW(q);
+
+              //Approssimation of Augmented Lagrangian term from tutorial
               // cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
               //                     fe_values[velocity].divergence(j,q) *
               //                     fe_values.JxW(q);
@@ -286,9 +303,13 @@ Stokes::assemble()
                                                 fe_values[velocity].value(i, q)) * 
                                   fe_values.JxW(q);
 
-              cell_residual(i) -= fe_values[pressure].value(i,q) * 
+              cell_residual(i) += fe_values[pressure].value(i,q) * 
                                   present_velocity_divergence * 
                                   fe_values.JxW(q);
+              //Augmented Lagrandgian term for preconditioning
+              // cell_residual(i) -= present_velocity_divergence *
+              //                     fe_values[velocity].divergence(i,q)*
+              //                     fe_values.JxW(q);
           }
       }
 
@@ -306,11 +327,10 @@ Stokes::assemble()
                     {
                       for (unsigned int i = 0; i < dofs_per_cell; ++i)
                         {
-                          cell_residual(i) +=-p_out *
+                          cell_residual(i) += -p_out *
                                               scalar_product(fe_face_values.normal_vector(q),
                                                             fe_face_values[velocity].value(i, q)) *
                                               fe_face_values.JxW(q);
-                           
                         }
                     }
                 }
@@ -337,7 +357,7 @@ Stokes::assemble()
     // condition alone, so that the latter "win" over the former where the two
     // boundaries touch.
     Functions::ZeroFunction<dim> zero_function(dim + 1);
-    boundary_functions[8] = &zero_function;//&inlet_velocity;
+    boundary_functions[8] = &zero_function;
     VectorTools::interpolate_boundary_values(dof_handler,
                                              boundary_functions,
                                              boundary_values,
@@ -364,7 +384,7 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(2000, 1e-4 * residual_vector.l2_norm());
+  SolverControl solver_control(200000, 1e-4 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -372,21 +392,100 @@ Stokes::solve()
   // preconditioner.initialize(system_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1));
 
-  // PreconditionBlockTriangular preconditioner;
-  // preconditioner.initialize(system_matrix.block(0, 0),
-  //                           pressure_mass.block(1, 1),
-  //                           system_matrix.block(1, 0));
+   PreconditionBlockTriangular preconditioner;
+   preconditioner.initialize(system_matrix.block(0, 0),
+                             pressure_mass.block(1, 1),
+                             system_matrix.block(1, 0));
   //PreconditionBlockIdentity preconditioner;
-   PersonalizedPreconditioner preconditioner;
-   preconditioner.initialize(system_matrix.block(0,0),
-                             system_matrix.block(0,1),
-                             pressure_mass.block(1,1),
-                             nu);
+  // PersonalizedPreconditioner preconditioner;
+  // preconditioner.initialize(system_matrix.block(0,0),
+  //                           system_matrix.block(0,1),72
+  //                           pressure_mass.block(1,1),
+  //                           nu,rho);
 
   pcout << "Solving the linear system" << std::endl;
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);
   pcout << "  " << solver_control.last_step() << " GMRES iterations"
         << std::endl;     
+}
+
+void
+Stokes::solve_newton()
+{
+  pcout << "===============================================" << std::endl;
+  
+  // Search the initial condition (small Reynold's number).
+  {
+    pcout << "Searching the initial condition" << std::endl;
+
+    assemble_stokes_system();
+    solve_stokes_system();
+    output("stokes");
+    pcout << "-----------------------------------------------" << std::endl;
+  }
+
+  const unsigned int n_max_iters        = 10000;
+  const double       residual_tolerance = 1e-3;
+
+  unsigned int n_iter        = 0;
+  double       residual_norm = residual_tolerance + 1;
+
+  Functions::ZeroFunction<dim> zero_function(dim + 1);
+
+  // We apply the boundary conditions to the initial guess (which is stored in
+  // solution_owned and solution).
+  {
+    IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler,
+                                                                        ComponentMask({true,true,false}),
+                                                                        {9,11});
+    IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
+                                                                        ComponentMask({true, true, false}),
+                                                                       {8}
+                                                                      );
+    TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
+    TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
+
+    VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
+    VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
+
+    for (const auto &idx : dirichlet_dofs_zero)
+      solution_owned[idx] = vector_dirichlet[idx];
+    
+    for (const auto &idx : dirichlet_dofs_inlet)
+      solution_owned[idx] = vector_inlet[idx];
+
+
+    solution_owned.compress(VectorOperation::insert);
+    solution = solution_owned;
+  }
+  
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
+    {
+      assemble();
+      residual_norm = residual_vector.l2_norm();
+
+      pcout << "Newton iteration " << n_iter << "/" << n_max_iters
+            << " - ||r|| = " << std::scientific << std::setprecision(6)
+            << residual_norm << std::flush;
+
+      // We actually solve the system only if the residual is larger than the
+      // tolerance.
+      if (residual_norm > residual_tolerance)
+        {
+          solve();
+
+          solution_owned += delta_owned;
+          solution = solution_owned;
+        }
+      else
+        {
+          pcout << " < tolerance" << std::endl;
+        }
+
+      ++n_iter;
+    }
+
+  pcout << "===============================================" << std::endl;
 }
 
 void
@@ -436,8 +535,6 @@ Stokes::output(std::string const file_name)
   pcout << "Output written to " << output_file_name << std::endl;
   pcout << "===============================================" << std::endl;
 }
-
-
 
 
 void
@@ -598,7 +695,7 @@ Stokes::solve_stokes_system()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(2000, 1e-6 * stokes_system_rhs.l2_norm());
+  SolverControl solver_control(20000, 1e-3);
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -617,59 +714,4 @@ Stokes::solve_stokes_system()
         << std::endl;
 
   solution = solution_owned;
-}
-
-
-
-
-
-
-void
-Stokes::solve_newton()
-{
-  pcout << "===============================================" << std::endl;
-  
-  // Search the initial condition (small Reynold's number).
-  {
-    pcout << "Searching the initial condition" << std::endl;
-
-    assemble_stokes_system();
-    solve_stokes_system();
-    output("stokes");
-    pcout << "-----------------------------------------------" << std::endl;
-  }
-
-  const unsigned int n_max_iters        = 10000;
-  const double       residual_tolerance = 1e-6;
-
-  unsigned int n_iter        = 0;
-  double       residual_norm = residual_tolerance + 1;
-  
-  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
-    {
-      assemble();
-      residual_norm = residual_vector.l2_norm();
-
-      pcout << "Newton iteration " << n_iter << "/" << n_max_iters
-            << " - ||r|| = " << std::scientific << std::setprecision(6)
-            << residual_norm << std::flush;
-
-      // We actually solve the system only if the residual is larger than the
-      // tolerance.
-      if (residual_norm > residual_tolerance)
-        {
-          solve();
-
-          solution_owned += delta_owned;
-          solution = solution_owned;
-        }
-      else
-        {
-          pcout << " < tolerance" << std::endl;
-        }
-
-      ++n_iter;
-    }
-
-  pcout << "===============================================" << std::endl;
 }

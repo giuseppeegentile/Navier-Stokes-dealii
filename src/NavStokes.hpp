@@ -192,8 +192,8 @@ public:
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
       SolverControl                           solver_control_velocity(1000,
-                                            1e-2 * src.block(0).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
+                                            1e-3);
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
       solver_cg_velocity.solve(*velocity_stiffness,
                                dst.block(0),
@@ -201,8 +201,8 @@ public:
                                preconditioner_velocity);
 
       SolverControl                           solver_control_pressure(1000,
-                                            1e-2 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
+                                            1e-3);
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
       solver_cg_pressure.solve(*pressure_mass,
                                dst.block(1),
@@ -250,7 +250,7 @@ public:
     {
       SolverControl                           solver_control_velocity(1000,
                                             1e-2 * src.block(0).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
       solver_cg_velocity.solve(*velocity_stiffness,
                                dst.block(0),
@@ -263,7 +263,7 @@ public:
 
       SolverControl            solver_control_pressure(1000,
                                             1e-2 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
       solver_cg_pressure.solve(*pressure_mass,
                                dst.block(1),
@@ -299,46 +299,48 @@ public:
       void initialize(const TrilinosWrappers::SparseMatrix &A_/*(0,0) block system matrix*/,
                       const TrilinosWrappers::SparseMatrix &Bt_/*(0,1) block in system_matrix*/,
                       const TrilinosWrappers::SparseMatrix &M_p_, /*pressure mass*/ 
-                      const double &nu_)
+                      const double &nu_,
+                      const double &rho_)
       {
         A = &A_;
         Bt = &Bt_;
         M_p = &M_p_;
         nu= &nu_;
+        rho=&rho_;
         preconditioner_pressure.initialize(M_p_);
-        
+        preconditioner_A.initialize(A_);
       }
-    //Application of preconditioner
+    //Application of preconditione<<<<<
     //dst is the result of the preconditoning, src are the normal unknows
     void
     vmult(TrilinosWrappers::MPI::BlockVector &dst,
           const TrilinosWrappers::MPI::BlockVector &src)const
-    { 
+    {
+      u_tmp=src.block(0);
       //computing  dst.block(1) that means S^-1 * xp
       SolverControl solver_control_pressure(1000, 1e-6 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(solver_control_pressure);
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(solver_control_pressure);
       
       dst.block(1) = 0.0;
       solver_cg_pressure.solve(*M_p,
                                dst.block(1),
                                src.block(1),
                                preconditioner_pressure);
-      dst.block(1) *= -((*nu) + gamma);
+      dst.block(1) *= -((*nu * (*rho)) + gamma);
       //computing dst.block(0) that means A^-1 * xu + B^-T * xp
-      u_tmp=src.block(0);
+      
       Bt->vmult(u_tmp, dst.block(1));
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      SolverControl solver_control_A(1000, 1e-2 * u_tmp.l2_norm());
-      //TrilinosWrappers::SolverDirect::AdditionalData AdditionalData;
-      //non so bene cosa sia serve per calcolare facilmente A tilde^-1, A tilde non è simemtrica
-      // TrilinosWrappers::SolverDirect A_inverse(solver_control_A);ù
-      PreconditionIdentity preconditioner;
+      SolverControl solver_control_A(10000, 1e-6 * u_tmp.l2_norm());
+      //TrilinosWrappers::SolverDirect solver(solver_control_A);
+      //PreconditionIdentity preconditioner;
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
-      solver.solve(*A , dst.block(0), u_tmp, preconditioner);
-      // A_inverse.initialize(*A);
-      // A_inverse.solve(dst.block(0),u_tmp);
+      //SparseDirectUMFPACK solver;
+      //solver.initialize(A);
+      preconditioner_A.initialize(*A);
+      solver.solve(*A, dst.block(0), u_tmp,preconditioner_A);
     }
 
     private:
@@ -347,14 +349,15 @@ public:
     //pressure mass matrix
     const TrilinosWrappers::SparseMatrix *M_p;
     //preconditioner for pressure mass matrix
-    TrilinosWrappers::PreconditionILU preconditioner_pressure;
+    mutable TrilinosWrappers::PreconditionILU preconditioner_pressure;
+    mutable TrilinosWrappers::PreconditionJacobi preconditioner_A;
     
     const double *nu;
+    const double *rho;
     const double gamma=1.0;
     
     //temporary vector
     mutable TrilinosWrappers::MPI::Vector u_tmp;
-    mutable TrilinosWrappers::MPI::Vector dst_temp;
   };
  //===========================================================================00
   // Constructor.
@@ -414,7 +417,7 @@ protected:
   const double rho = 1;
 
   // Outlet pressure [Pa].
-  const double p_out = 10;
+  const double p_out = 0;
 
   // Forcing term.
   ForcingTerm forcing_term;
