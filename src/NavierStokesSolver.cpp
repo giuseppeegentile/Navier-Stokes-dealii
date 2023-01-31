@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/NavStokes2D-0_1.msh");
+    std::ifstream grid_in_file("../mesh/NavStokes2D-0_03.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -258,7 +258,7 @@ NavierStokesSolver::assemble_system()
                                                       fe_values[velocity].gradient(j, q)) *
                                        fe_values.JxW(q);
 
-                  cell_matrix(i, j) +=rho*
+/*                   cell_matrix(i, j) +=rho*
                                     fe_values[velocity].value(j, q) *
                                     transpose(present_velocity_gradients[q]) * 
                                     fe_values[velocity].value(i, q) * 
@@ -268,7 +268,7 @@ NavierStokesSolver::assemble_system()
                                     present_velocity_values[q] * 
                                     transpose(fe_values[velocity].gradient(j, q)) *
                                     fe_values[velocity].value(i, q) * 
-                                    fe_values.JxW(q);
+                                    fe_values.JxW(q); */
 
                   // Pressure term in the momentum equation.
                   cell_matrix(i, j) -= fe_values[velocity].divergence(i, q) *
@@ -296,17 +296,17 @@ NavierStokesSolver::assemble_system()
                                                  fe_values[velocity].gradient(i, q)) *
                                   fe_values.JxW(q);
 
-              cell_residual(i) -= rho* 
+/*               cell_residual(i) -= rho* 
                                   present_velocity_values[q] * 
                                   transpose(present_velocity_gradients[q]) * 
                                   fe_values[velocity].value(i, q) * 
-                                  fe_values.JxW(q);
+                                  fe_values.JxW(q); */
 
               cell_residual(i) += present_pressure_values[q] *
                                   fe_values[velocity].divergence(i, q) *
                                   fe_values.JxW(q);
 
-              cell_residual(i) -= trace(present_velocity_gradients[q]) *
+              cell_residual(i) += trace(present_velocity_gradients[q]) *
                                   fe_values[pressure].value(i, q) *
                                   fe_values.JxW(q);
 
@@ -570,7 +570,7 @@ NavierStokesSolver::solve_system()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(100000, 1e-6 * residual_vector.l2_norm());
+  SolverControl solver_control(100000, 1e-10 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
@@ -596,7 +596,7 @@ void
 NavierStokesSolver::solve_newton()
 {
   const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-6;
+  const double       residual_tolerance = 1e-10;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
@@ -627,7 +627,7 @@ NavierStokesSolver::solve_newton()
     solution = solution_owned;
   }
 
-  output(1, time);
+  // output(1, time);
 
   while (n_iter < n_max_iters && residual_norm > residual_tolerance)
     {
@@ -643,7 +643,7 @@ NavierStokesSolver::solve_newton()
       if (residual_norm > residual_tolerance)
         {
           solve_system();
-          pcout << "System solved!" << std::endl;
+          // pcout << "System solved!" << std::endl;
 
           // delta_owned *= 0.1;
           solution_owned += delta_owned;
@@ -655,8 +655,8 @@ NavierStokesSolver::solve_newton()
           pcout << " < tolerance" << std::endl;
         }
       
-      if (n_iter == 0 || n_iter == 1)
-        output(1000 + n_iter, time);
+      // if (n_iter == 0 || n_iter == 1)
+      //   output(1000 + n_iter, time);
 
       ++n_iter;
     }
@@ -683,32 +683,8 @@ NavierStokesSolver::solve()
   {
     pcout << "Applying the initial condition" << std::endl;
 
-    VectorTools::interpolate(dof_handler, u_0, solution_owned);
+    VectorTools::interpolate(dof_handler, u_0, solution_owned, ComponentMask({true, true, false}));
     solution = solution_owned;
-
-    Functions::ZeroFunction<dim> zero_function(dim + 1);
-
-  {
-    IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler, ComponentMask({true, true, false}), {9, 11});
-    IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, ComponentMask({true, true, false}), {8});
-
-    inlet_velocity.set_time(time);
-
-    TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
-    TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
-
-    VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
-    VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
-
-    for (const auto &idx : dirichlet_dofs_zero)
-      solution_owned[idx] = vector_dirichlet[idx];
-
-    for (const auto &idx : dirichlet_dofs_inlet)
-      solution_owned[idx] = vector_inlet[idx];
-
-    solution_owned.compress(VectorOperation::insert);
-    solution = solution_owned;
-  }
 
     // Output the initial solution.
     output(0, 0.0);

@@ -455,9 +455,9 @@ public:
     vector_value(const Point<dim> &p, Vector<double> &values) const override
     {
       // 2D-2 test case.
-      // values[0] = 4. * u_m * p[1] * (H - p[1]) / (H * H);
+      values[0] = 4. * u_m * p[1] * (H - p[1]) / (H * H);
       // 2D-3 test case.
-      values[0] = 4. * u_m * p[1] * (H - p[1]) * std::sin(M_PI * get_time() / 8.) / (H * H);
+      // values[0] = 4. * u_m * p[1] * (H - p[1]) * std::sin(M_PI * get_time() / 8.) / (H * H);
 
       for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
@@ -468,18 +468,18 @@ public:
     {
       if (component == 0)
         // 2D-2 test case.
-        // return 4. * u_m * p[1] * (H - p[1]) / (H * H);
+        return 4. * u_m * p[1] * (H - p[1]) / (H * H);
         // 2D-3 test case.
-        return 4. * u_m * p[1] * (H - p[1]) * std::sin(M_PI * get_time() / 8.) / (H * H);
+        // return 4. * u_m * p[1] * (H - p[1]) * std::sin(M_PI * get_time() / 8.) / (H * H);
       else
         return 0.0;
     }
 
   protected:
     // 2D-2 test case.
-    // const double u_m = 0.3;
+    const double u_m = 0.3;
     // 2D-3 test case.
-    const double u_m = 0.015;
+    // const double u_m = 1.5;
     const double H = 0.41;
   };
 
