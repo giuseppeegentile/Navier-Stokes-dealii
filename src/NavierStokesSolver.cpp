@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/NavStokes2D-0_1.msh");
+    std::ifstream grid_in_file("../mesh/NavStokes2D-0_03.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -280,6 +280,11 @@ NavierStokesSolver::assemble_system()
                                        fe_values[pressure].value(i, q) *
                                        fe_values.JxW(q);
 
+                  //Approssimation of Augmented Lagrangian term from tutorial
+                  cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
+                                      fe_values[velocity].divergence(j,q) *
+                                      fe_values.JxW(q);
+
                   // Pressure mass matrix.
                   cell_pressure_mass_matrix(i, j) += fe_values[pressure].value(i, q) *
                                                      fe_values[pressure].value(j, q) / nu * 
@@ -313,6 +318,11 @@ NavierStokesSolver::assemble_system()
               // Forcing term.
               cell_residual(i) += scalar_product(forcing_term_tensor,
                                                  fe_values[velocity].value(i, q)) *
+                                  fe_values.JxW(q);
+
+              //Augmented Lagrandgian term for preconditioning
+              cell_residual(i) -= trace(present_velocity_gradients[q]) *
+                                  fe_values[velocity].divergence(i,q)*
                                   fe_values.JxW(q);
             }
         }
@@ -581,16 +591,16 @@ NavierStokesSolver::solve_system()
   //                           pressure_mass.block(1, 1));
 
 
-  PreconditionBlockTriangular preconditioner;
+/*   PreconditionBlockTriangular preconditioner;
   preconditioner.initialize(jacobian_matrix.block(0, 0),
                             pressure_mass.block(1, 1),
-                            jacobian_matrix.block(1, 0));
+                            jacobian_matrix.block(1, 0)); */
 
-/*   PersonalizedPreconditioner preconditioner;
-  preconditioner.initialize(system_matrix.block(0,0),
-                            system_matrix.block(0,1),
+  PersonalizedPreconditioner preconditioner;
+  preconditioner.initialize(jacobian_matrix.block(0,0),
+                            jacobian_matrix.block(0,1),
                             pressure_mass.block(1,1),
-                            nu,rho); */
+                            nu,rho);
 
   pcout << "Solving system..." << std::endl;
   solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 

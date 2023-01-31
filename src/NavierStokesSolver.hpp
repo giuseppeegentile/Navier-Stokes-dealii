@@ -525,6 +525,21 @@ public:
   protected:
   };
 
+  // Identity block preconditioner.
+  class PreconditionBlockIdentity
+  {
+  public:
+    // Application of the preconditioner: we just copy the input vector (src)
+    // into the output vector (dst).
+    void
+    vmult(TrilinosWrappers::MPI::BlockVector &      dst,
+          const TrilinosWrappers::MPI::BlockVector &src) const
+    {
+      dst = src;
+    }
+  protected:
+  };
+
   // Block-diagonal preconditioner.
   class PreconditionBlockDiagonal
   {
@@ -645,6 +660,73 @@ public:
 
     // Temporary vector.
     mutable TrilinosWrappers::MPI::Vector tmp;
+  };
+
+    class PersonalizedPreconditioner
+  {
+    public:
+      void initialize(const TrilinosWrappers::SparseMatrix &A_/*(0,0) block system matrix*/,
+                      const TrilinosWrappers::SparseMatrix &Bt_/*(0,1) block in system_matrix*/,
+                      const TrilinosWrappers::SparseMatrix &M_p_, /*pressure mass*/ 
+                      const double &nu_,
+                      const double &rho_)
+      {
+        A = &A_;
+        Bt = &Bt_;
+        M_p = &M_p_;
+        nu= &nu_;
+        rho=&rho_;
+        preconditioner_pressure.initialize(M_p_);
+        preconditioner_A.initialize(A_);
+      }
+    //Application of preconditione<<<<<
+    //dst is the result of the preconditoning, src are the normal unknows
+    void
+    vmult(TrilinosWrappers::MPI::BlockVector &dst,
+          const TrilinosWrappers::MPI::BlockVector &src)const
+    {
+      u_tmp=src.block(0);
+      //computing  dst.block(1) that means S^-1 * xp
+      SolverControl solver_control_pressure(1000, 1e-2 * src.block(1).l2_norm());
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(solver_control_pressure);
+      
+      dst.block(1) = 0.0;
+      solver_cg_pressure.solve(*M_p,
+                               dst.block(1),
+                               src.block(1),
+                               preconditioner_pressure);
+      dst.block(1) *= -((*nu * (*rho)) + gamma);
+      //computing dst.block(0) that means A^-1 * xu + B^-T * xp
+      
+      Bt->vmult(u_tmp, dst.block(1));
+      u_tmp *= -1.0;
+      u_tmp += src.block(0);
+      
+      SolverControl solver_control_A(10000, 1e-2 * u_tmp.l2_norm());
+      //TrilinosWrappers::SolverDirect solver(solver_control_A);
+      //PreconditionIdentity preconditioner;
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
+      //SparseDirectUMFPACK solver;
+      //solver.initialize(A);
+      preconditioner_A.initialize(*A);
+      solver.solve(*A, dst.block(0), u_tmp,preconditioner_A);
+    }
+
+    private:
+    const TrilinosWrappers::SparseMatrix *A;
+    const TrilinosWrappers::SparseMatrix *Bt;
+    //pressure mass matrix
+    const TrilinosWrappers::SparseMatrix *M_p;
+    //preconditioner for pressure mass matrix
+    mutable TrilinosWrappers::PreconditionILU preconditioner_pressure;
+    mutable TrilinosWrappers::PreconditionJacobi preconditioner_A;
+    
+    const double *nu;
+    const double *rho;
+    const double gamma=1.0;
+    
+    //temporary vector
+    mutable TrilinosWrappers::MPI::Vector u_tmp;
   };
 
   // Constructor.
