@@ -143,8 +143,7 @@ public:
       virtual void
       vector_value(const Point<dim> &p, Vector<double> &values) const override
       {
-        values[0]= 10;//x
-        values[1]= 0 ;//y
+        values[0]= 0.3;
         for (unsigned int i = 1; i < dim + 1; ++i)
         values[i] = 0.0;
       }
@@ -152,7 +151,7 @@ public:
       value(const Point<dim> &p, const unsigned int component = 0) const override
       {
         if (component == 0)
-          return 10;
+          return 0.3;
         else
           return 0.0;
       }
@@ -274,9 +273,9 @@ public:
     {
       ReductionControl  solver_control_velocity(1000, 1e-12 , 1e-4 *src.block(0).l2_norm());
 
-      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_gmres_velocity(
         solver_control_velocity);
-      solver_cg_velocity.solve(*velocity_stiffness,
+      solver_gmres_velocity.solve(*velocity_stiffness,
                                dst.block(0),
                                src.block(0),
                                preconditioner_velocity);
@@ -286,9 +285,9 @@ public:
       tmp.sadd(-1.0, src.block(1));
 
       ReductionControl   solver_control_pressure(1000, 1e-12, 1e-2 * src.block(1).l2_norm());
-      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_gmres_pressure(
         solver_control_pressure);
-      solver_cg_pressure.solve(*pressure_mass,
+      solver_gmres_pressure.solve(*pressure_mass,
                                dst.block(1),
                                tmp,
                                preconditioner_pressure);
@@ -341,11 +340,11 @@ public:
     {
       u_tmp=src.block(0);
       //computing  dst.block(1) that means S^-1 * xp
-      SolverControl solver_control_pressure(1000, 1e-6 * src.block(1).l2_norm());
-      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(solver_control_pressure);
+      SolverControl solver_control_pressure(10000, 1e-6 * src.block(1).l2_norm());
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_gmres_pressure(solver_control_pressure);
       
       dst.block(1) = 0.0;
-      solver_cg_pressure.solve(*M_p,
+      solver_gmres_pressure.solve(*M_p,
                                dst.block(1),
                                src.block(1),
                                preconditioner_pressure);
@@ -356,7 +355,7 @@ public:
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      SolverControl solver_control_A(10000, 1e-6 * u_tmp.l2_norm());
+      ReductionControl solver_control_A(10000,1e-10, 1e-5 * u_tmp.l2_norm());
       //TrilinosWrappers::SolverDirect solver(solver_control_A);
       //PreconditionIdentity preconditioner;
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
@@ -448,6 +447,7 @@ protected:
   // Inlet velocity.
   InletVelocity inlet_velocity;
 
+  //Velocity on the low and upper boundary walls
   WallVelocity wall_velocity;
 
   // Discretization. ///////////////////////////////////////////////////////////

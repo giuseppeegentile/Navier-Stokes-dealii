@@ -272,6 +272,10 @@ Stokes::assemble()
               cell_pressure_mass_matrix(i, j) +=  fe_values[pressure].value(j, q) * 
                                                   fe_values[pressure].value(i, q) *
                                                   fe_values.JxW(q);
+              //Approssimation of Augmented Lagrangian term from tutorial
+              cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
+                                  fe_values[velocity].divergence(j,q) *
+                                  fe_values.JxW(q);
               }
               double present_velocity_divergence = trace(present_velocity_gradients[q]);
               cell_residual(i) -= nu * rho * 
@@ -295,6 +299,10 @@ Stokes::assemble()
 
               cell_residual(i) += fe_values[pressure].value(i,q) * //plus because the opposite of the above commented
                                   present_velocity_divergence * 
+                                  fe_values.JxW(q);
+              //Augmented Lagrandgian term for preconditioning
+              cell_residual(i) -= present_velocity_divergence *
+                                  fe_values[velocity].divergence(i,q)*
                                   fe_values.JxW(q);
           }
       }
@@ -370,9 +378,9 @@ Stokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
-  ReductionControl solver_control(2000000,1e-10, 1e-4 * residual_vector.l2_norm());
-
-  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+  ReductionControl solver_control(20000000,1e-20, 1e-14 * residual_vector.l2_norm());
+  //if using PersonalizePreconditioner use FGMRES
+  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
   // PreconditionBlockDiagonal preconditioner;
   // preconditioner.initialize(system_matrix.block(0, 0),
@@ -383,12 +391,12 @@ Stokes::solve()
   //                            pressure_mass.block(1, 1),
   //                            system_matrix.block(1, 0));
     
-  PreconditionBlockIdentity preconditioner;
-  // PersonalizedPreconditioner preconditioner;
-  // preconditioner.initialize(system_matrix.block(0,0),
-  //                           system_matrix.block(0,1),72
-  //                           pressure_mass.block(1,1),
-  //                           nu,rho);
+  //PreconditionBlockIdentity preconditioner;
+  PersonalizedPreconditioner preconditioner;
+  preconditioner.initialize(system_matrix.block(0,0),
+                            system_matrix.block(0,1),
+                            pressure_mass.block(1,1),
+                            nu,rho);
 
   pcout << "Solving the linear system" << std::endl;
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);
@@ -412,7 +420,7 @@ Stokes::solve_newton()
   // }
 
   const unsigned int n_max_iters        = 10000;
-  const double       residual_tolerance = 1e-16;
+  const double       residual_tolerance = 1e-14;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
@@ -424,26 +432,26 @@ Stokes::solve_newton()
   {
     IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler,
                                                                         ComponentMask({true,true,false}),
-                                                                        {9,11});
+                                                                        {11});
 
-    // IndexSet dirichlet_dofs_walls = DoFTools::extract_boundary_dofs(dof_handler,
-    //                                                                     ComponentMask({true,true,false}),
-    //                                                                     {9});
+    IndexSet dirichlet_dofs_walls = DoFTools::extract_boundary_dofs(dof_handler,
+                                                                        ComponentMask({true,true,false}),
+                                                                        {9});
 
     IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
                                                                         ComponentMask({true, true, false}),
                                                                        {8}
                                                                       );
-    // TrilinosWrappers::MPI::BlockVector vector_walls(solution_owned);
+    TrilinosWrappers::MPI::BlockVector vector_walls(solution_owned);
     TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
     TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
 
-    // VectorTools::interpolate(dof_handler, wall_velocity, vector_walls);
+    VectorTools::interpolate(dof_handler, wall_velocity, vector_walls);
     VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
     VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
 
-    // for (const auto &idx : dirichlet_dofs_walls)
-    //   solution_owned[idx] = vector_walls[idx];
+    for (const auto &idx : dirichlet_dofs_walls)
+      solution_owned[idx] = vector_walls[idx];
 
     for (const auto &idx : dirichlet_dofs_zero)
       solution_owned[idx] = vector_dirichlet[idx];
@@ -473,30 +481,40 @@ Stokes::solve_newton()
 
           solution_owned += delta_owned;
           solution = solution_owned;
-          {
-            IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler,
-                                                                                ComponentMask({true,true,false}),
-                                                                                {9,11});
-            IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
-                                                                                ComponentMask({true, true, false}),
-                                                                              {8}
-                                                                              );
-            TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
-            TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
+          // {
+          //   IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler,
+          //                                                                       ComponentMask({true,true,false}),
+          //                                                                       {11});
 
-            VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
-            VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
-
-            for (const auto &idx : dirichlet_dofs_zero)
-              solution_owned[idx] = vector_dirichlet[idx];
+          //   IndexSet dirichlet_dofs_walls = DoFTools::extract_boundary_dofs(dof_handler,
+          //                                                               ComponentMask({true,true,false}),
+          //                                                               {9});
             
-            for (const auto &idx : dirichlet_dofs_inlet)
-              solution_owned[idx] = vector_inlet[idx];
+          //   IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
+          //                                                                       ComponentMask({true, true, false}),
+          //                                                                     {8}
+          //                                                                     );
+          //   TrilinosWrappers::MPI::BlockVector vector_walls(solution_owned);
+          //   TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
+          //   TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
+
+          //   VectorTools::interpolate(dof_handler, wall_velocity, vector_walls);
+          //   VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
+          //   VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
+
+          //   for (const auto &idx : dirichlet_dofs_walls)
+          //     solution_owned[idx] = vector_walls[idx];
+
+          //   for (const auto &idx : dirichlet_dofs_zero)
+          //     solution_owned[idx] = vector_dirichlet[idx];
+            
+          //   for (const auto &idx : dirichlet_dofs_inlet)
+          //     solution_owned[idx] = vector_inlet[idx];
 
 
-            solution_owned.compress(VectorOperation::insert);
-            solution = solution_owned;
-           }
+          //   solution_owned.compress(VectorOperation::insert);
+          //   solution = solution_owned;
+          //  }
         }
       else
         {
