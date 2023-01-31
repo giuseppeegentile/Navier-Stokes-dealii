@@ -219,14 +219,14 @@ NavierStokes::assemble_system()
 
   FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
   FullMatrix<double> cell_pressure_mass_matrix(dofs_per_cell, dofs_per_cell);
-  //FullMatrix<double> cell_stiffness_matrix(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_stiffness_matrix(dofs_per_cell, dofs_per_cell);
   Vector<double>     cell_residual(dofs_per_cell);
   
   std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
 
   system_matrix = 0.0;
   pressure_mass = 0.0;
-  //stiffness_matrix = 0.0;
+  stiffness_matrix = 0.0;
   residual_vector = 0.0;
   FEValuesExtractors::Vector velocity(0);
   FEValuesExtractors::Scalar pressure(dim);
@@ -251,7 +251,7 @@ NavierStokes::assemble_system()
       cell_matrix = 0;
       cell_residual    = 0;
       cell_pressure_mass_matrix = 0.0;
-      //cell_stiffness_matrix = 0.0;
+      cell_stiffness_matrix = 0.0;
       fe_values[velocity].get_function_values(solution,
                                                 present_velocity_values);
   
@@ -291,6 +291,8 @@ NavierStokes::assemble_system()
                                 fe_values[velocity].value(i, q) * 
                                 fe_values.JxW(q);
 
+              
+
               cell_matrix(i, j) -= fe_values[pressure].value(j, q) *
                                    fe_values[velocity].divergence(i, q) * 
                                    fe_values.JxW(q);
@@ -308,10 +310,10 @@ NavierStokes::assemble_system()
                                                   fe_values[pressure].value(i, q) / nu *
                                                   fe_values.JxW(q);
 
-              /*cell_stiffness_matrix(i, j) += nu * rho * 
+              cell_stiffness_matrix(i, j) += nu * rho * 
                                              scalar_product(fe_values[velocity].gradient(j, q), 
                                              fe_values[velocity].gradient(i, q)) *
-                                             fe_values.JxW(q);*/
+                                             fe_values.JxW(q);
               }
               double present_velocity_divergence = trace(present_velocity_gradients[q]);
               cell_residual(i) -= nu * rho * 
@@ -372,13 +374,13 @@ NavierStokes::assemble_system()
       system_matrix.add(dof_indices, cell_matrix);
       residual_vector.add(dof_indices, cell_residual);
       pressure_mass.add(dof_indices, cell_pressure_mass_matrix);
-      //stiffness_matrix.add(dof_indices, cell_stiffness_matrix);
+      stiffness_matrix.add(dof_indices, cell_stiffness_matrix);
     }
 
   system_matrix.compress(VectorOperation::add);
   residual_vector.compress(VectorOperation::add);
   pressure_mass.compress(VectorOperation::add);
-  //stiffness_matrix.compress(VectorOperation::add);
+  stiffness_matrix.compress(VectorOperation::add);
 
   // Dirichlet boundary conditions.
   {
@@ -470,28 +472,20 @@ NavierStokes::solve_newton()
   {
     IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler,
                                                                         ComponentMask({true,true,false}),
-                                                                        {11});
-    IndexSet dirichlet_dofs_wall = DoFTools::extract_boundary_dofs(dof_handler,
-                                                                        ComponentMask({true,true,false}),
-                                                                        {9});
+                                                                        {9,11});
     IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
                                                                         ComponentMask({true, true, false}),
                                                                        {8}
                                                                       );
     TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
-    TrilinosWrappers::MPI::BlockVector vector_wall(solution_owned);
     TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
 
     VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
-    VectorTools::interpolate(dof_handler, wall_velocity, vector_wall);
     VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
 
     for (const auto &idx : dirichlet_dofs_zero)
       solution_owned[idx] = vector_dirichlet[idx];
     
-    for (const auto &idx : dirichlet_dofs_wall)
-      solution_owned[idx] = vector_wall[idx];
-
     for (const auto &idx : dirichlet_dofs_inlet)
       solution_owned[idx] = vector_inlet[idx];
 
