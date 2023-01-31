@@ -64,7 +64,7 @@
 using namespace dealii;
   
 // Class implementing a solver for the Stokes problem.
-class Stokes
+class NavStokes
 {
 public:
   // Physical dimension (1D, 2D, 3D)
@@ -142,19 +142,24 @@ public:
       {}
       virtual void
       vector_value(const Point<dim> &p, Vector<double> &values) const override
-      {
-        values[0]= 0.3;
-        for (unsigned int i = 1; i < dim + 1; ++i)
+      { 
+        values[1]= 0.0;
+        values[0]= p[0]>0.25? (0.2) : 0.05;
+        for (unsigned int i = 2; i < dim + 1; ++i)
         values[i] = 0.0;
       }
       virtual double
       value(const Point<dim> &p, const unsigned int component = 0) const override
-      {
+      { 
+        
         if (component == 0)
-          return 0.3;
+          return p[0]>0.25? (0.2) : 0.05;
         else
           return 0.0;
       }
+    protected:
+    const double L=2.2;//[m]
+    const double u_m=0.3;
   };
 
   // Since we're working with block matrices, we need to make our own
@@ -271,7 +276,7 @@ public:
     vmult(TrilinosWrappers::MPI::BlockVector &      dst,
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
-      ReductionControl  solver_control_velocity(1000, 1e-12 , 1e-4 *src.block(0).l2_norm());
+      ReductionControl  solver_control_velocity(100000, 1e-12 , 1e-4 *src.block(0).l2_norm());
 
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_gmres_velocity(
         solver_control_velocity);
@@ -284,7 +289,7 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      ReductionControl   solver_control_pressure(1000, 1e-12, 1e-2 * src.block(1).l2_norm());
+      ReductionControl   solver_control_pressure(100000, 1e-12, 1e-2 * src.block(1).l2_norm());
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_gmres_pressure(
         solver_control_pressure);
       solver_gmres_pressure.solve(*pressure_mass,
@@ -340,7 +345,7 @@ public:
     {
       u_tmp=src.block(0);
       //computing  dst.block(1) that means S^-1 * xp
-      SolverControl solver_control_pressure(10000, 1e-6 * src.block(1).l2_norm());
+      ReductionControl solver_control_pressure(100000,1e-4, 1e-3 * src.block(1).l2_norm());
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_gmres_pressure(solver_control_pressure);
       
       dst.block(1) = 0.0;
@@ -355,7 +360,7 @@ public:
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      ReductionControl solver_control_A(10000,1e-10, 1e-5 * u_tmp.l2_norm());
+      ReductionControl solver_control_A(100000,1e-4, 1e-3 * u_tmp.l2_norm());
       //TrilinosWrappers::SolverDirect solver(solver_control_A);
       //PreconditionIdentity preconditioner;
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
@@ -383,7 +388,7 @@ public:
   };
  //===========================================================================00
   // Constructor.
-  Stokes(const unsigned int &N_,
+  NavStokes(const unsigned int &N_,
          const unsigned int &degree_velocity_,
          const unsigned int &degree_pressure_)
     : mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))

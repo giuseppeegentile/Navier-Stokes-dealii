@@ -1,7 +1,7 @@
 #include "NavStokes.hpp"
 
 void
-Stokes::setup()
+NavStokes::setup()
 {
   // Create the mesh.
   {
@@ -13,7 +13,7 @@ Stokes::setup()
     grid_in.attach_triangulation(mesh_serial);
 
     const std::string mesh_file_name =
-      "../mesh/NavStokes2D-0_1.msh";
+      "../mesh/NavStokes2D-0_01.msh";
 
     std::ifstream grid_in_file(mesh_file_name);
     grid_in.read_msh(grid_in_file);
@@ -179,7 +179,7 @@ Stokes::setup()
 }
 
 void
-Stokes::assemble()
+NavStokes::assemble()
 {
   pcout << "===============================================" << std::endl;
   pcout << "Assembling the system" << std::endl;
@@ -374,7 +374,7 @@ Stokes::assemble()
 }
 
 void
-Stokes::solve()
+NavStokes::solve()
 {
   pcout << "===============================================" << std::endl;
 
@@ -405,7 +405,7 @@ Stokes::solve()
 }
 
 void
-Stokes::solve_newton()
+NavStokes::solve_newton()
 {
   pcout << "===============================================" << std::endl;
   
@@ -434,24 +434,24 @@ Stokes::solve_newton()
                                                                         ComponentMask({true,true,false}),
                                                                         {11});
 
-    IndexSet dirichlet_dofs_walls = DoFTools::extract_boundary_dofs(dof_handler,
-                                                                        ComponentMask({true,true,false}),
-                                                                        {9});
+    // IndexSet dirichlet_dofs_walls = DoFTools::extract_boundary_dofs(dof_handler,
+    //                                                                     ComponentMask({true,true,false}),
+    //                                                                     {9});
 
     IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
                                                                         ComponentMask({true, true, false}),
                                                                        {8}
                                                                       );
-    TrilinosWrappers::MPI::BlockVector vector_walls(solution_owned);
+    // TrilinosWrappers::MPI::BlockVector vector_walls(solution_owned);
     TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
     TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
 
-    VectorTools::interpolate(dof_handler, wall_velocity, vector_walls);
+    // VectorTools::interpolate(dof_handler, wall_velocity, vector_walls);
     VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
     VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
 
-    for (const auto &idx : dirichlet_dofs_walls)
-      solution_owned[idx] = vector_walls[idx];
+    // for (const auto &idx : dirichlet_dofs_walls)
+    //   solution_owned[idx] = vector_walls[idx];
 
     for (const auto &idx : dirichlet_dofs_zero)
       solution_owned[idx] = vector_dirichlet[idx];
@@ -481,40 +481,6 @@ Stokes::solve_newton()
 
           solution_owned += delta_owned;
           solution = solution_owned;
-          // {
-          //   IndexSet dirichlet_dofs_zero = DoFTools::extract_boundary_dofs(dof_handler,
-          //                                                                       ComponentMask({true,true,false}),
-          //                                                                       {11});
-
-          //   IndexSet dirichlet_dofs_walls = DoFTools::extract_boundary_dofs(dof_handler,
-          //                                                               ComponentMask({true,true,false}),
-          //                                                               {9});
-            
-          //   IndexSet dirichlet_dofs_inlet = DoFTools::extract_boundary_dofs(dof_handler, 
-          //                                                                       ComponentMask({true, true, false}),
-          //                                                                     {8}
-          //                                                                     );
-          //   TrilinosWrappers::MPI::BlockVector vector_walls(solution_owned);
-          //   TrilinosWrappers::MPI::BlockVector vector_dirichlet(solution_owned);
-          //   TrilinosWrappers::MPI::BlockVector vector_inlet(solution_owned);
-
-          //   VectorTools::interpolate(dof_handler, wall_velocity, vector_walls);
-          //   VectorTools::interpolate(dof_handler, zero_function, vector_dirichlet);
-          //   VectorTools::interpolate(dof_handler, inlet_velocity, vector_inlet);
-
-          //   for (const auto &idx : dirichlet_dofs_walls)
-          //     solution_owned[idx] = vector_walls[idx];
-
-          //   for (const auto &idx : dirichlet_dofs_zero)
-          //     solution_owned[idx] = vector_dirichlet[idx];
-            
-          //   for (const auto &idx : dirichlet_dofs_inlet)
-          //     solution_owned[idx] = vector_inlet[idx];
-
-
-          //   solution_owned.compress(VectorOperation::insert);
-          //   solution = solution_owned;
-          //  }
         }
       else
         {
@@ -528,7 +494,7 @@ Stokes::solve_newton()
 }
 
 void
-Stokes::output(std::string const file_name)
+NavStokes::output(std::string const file_name)
 {
   pcout << "===============================================" << std::endl;
 
@@ -562,13 +528,13 @@ Stokes::output(std::string const file_name)
                                     /*xdmf_hdf5_output = */ true));
   data_out.write_filtered_data(data_filter);
   data_out.write_hdf5_parallel(data_filter,
-                               output_file_name + ".h5",
+                               "Steady"+output_file_name + ".h5",
                                MPI_COMM_WORLD);
 
   std::vector<XDMFEntry> xdmf_entries({data_out.create_xdmf_entry(
     data_filter, output_file_name + ".h5", 0, MPI_COMM_WORLD)});
   data_out.write_xdmf_file(xdmf_entries,
-                           output_file_name + ".xdmf",
+                           "Steady"+output_file_name + ".xdmf",
                            MPI_COMM_WORLD);
 
   pcout << "Output written to " << output_file_name << std::endl;
