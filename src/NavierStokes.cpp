@@ -219,14 +219,14 @@ NavierStokes::assemble_system()
 
   FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
   FullMatrix<double> cell_pressure_mass_matrix(dofs_per_cell, dofs_per_cell);
-  FullMatrix<double> cell_stiffness_matrix(dofs_per_cell, dofs_per_cell);
+  //FullMatrix<double> cell_stiffness_matrix(dofs_per_cell, dofs_per_cell);
   Vector<double>     cell_residual(dofs_per_cell);
   
   std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
 
   system_matrix = 0.0;
   pressure_mass = 0.0;
-  stiffness_matrix = 0.0;
+  //stiffness_matrix = 0.0;
   residual_vector = 0.0;
   FEValuesExtractors::Vector velocity(0);
   FEValuesExtractors::Scalar pressure(dim);
@@ -251,7 +251,7 @@ NavierStokes::assemble_system()
       cell_matrix = 0;
       cell_residual    = 0;
       cell_pressure_mass_matrix = 0.0;
-      cell_stiffness_matrix = 0.0;
+      //cell_stiffness_matrix = 0.0;
       fe_values[velocity].get_function_values(solution,
                                                 present_velocity_values);
   
@@ -308,10 +308,10 @@ NavierStokes::assemble_system()
                                                   fe_values[pressure].value(i, q) / nu *
                                                   fe_values.JxW(q);
 
-              cell_stiffness_matrix(i, j) += nu * rho * 
+              /*cell_stiffness_matrix(i, j) += nu * rho * 
                                              scalar_product(fe_values[velocity].gradient(j, q), 
                                              fe_values[velocity].gradient(i, q)) *
-                                             fe_values.JxW(q);
+                                             fe_values.JxW(q);*/
               }
               double present_velocity_divergence = trace(present_velocity_gradients[q]);
               cell_residual(i) -= nu * rho * 
@@ -372,13 +372,13 @@ NavierStokes::assemble_system()
       system_matrix.add(dof_indices, cell_matrix);
       residual_vector.add(dof_indices, cell_residual);
       pressure_mass.add(dof_indices, cell_pressure_mass_matrix);
-      stiffness_matrix.add(dof_indices, cell_stiffness_matrix);
+      //stiffness_matrix.add(dof_indices, cell_stiffness_matrix);
     }
 
   system_matrix.compress(VectorOperation::add);
   residual_vector.compress(VectorOperation::add);
   pressure_mass.compress(VectorOperation::add);
-  stiffness_matrix.compress(VectorOperation::add);
+  //stiffness_matrix.compress(VectorOperation::add);
 
   // Dirichlet boundary conditions.
   {
