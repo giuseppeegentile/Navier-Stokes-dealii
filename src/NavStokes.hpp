@@ -134,6 +134,30 @@ public:
     const double H=0.41; // [m]
   };
 
+  class WallVelocity : public Function<dim>
+  {
+    public:
+      WallVelocity()
+        : Function<dim>(dim + 1)
+      {}
+      virtual void
+      vector_value(const Point<dim> &p, Vector<double> &values) const override
+      {
+        values[0]= 10;//x
+        values[1]= 0 ;//y
+        for (unsigned int i = 1; i < dim + 1; ++i)
+        values[i] = 0.0;
+      }
+      virtual double
+      value(const Point<dim> &p, const unsigned int component = 0) const override
+      {
+        if (component == 0)
+          return 10;
+        else
+          return 0.0;
+      }
+  };
+
   // Since we're working with block matrices, we need to make our own
   // preconditioner class. A preconditioner class can be any class that exposes
   // a vmult method that applies the inverse of the preconditioner.
@@ -261,7 +285,7 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      ReductionControl   solver_control_pressure(1000, 1e-12, 1e-4 * src.block(1).l2_norm());
+      ReductionControl   solver_control_pressure(1000, 1e-12, 1e-2 * src.block(1).l2_norm());
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
       solver_cg_pressure.solve(*pressure_mass,
@@ -385,9 +409,9 @@ public:
   void
   solve();
 
-  void solve_stokes_system();
+  // void solve_stokes_system();
 
-  void assemble_stokes_system();
+  // void assemble_stokes_system();
 
   // Output results.
   void
@@ -423,6 +447,8 @@ protected:
 
   // Inlet velocity.
   InletVelocity inlet_velocity;
+
+  WallVelocity wall_velocity;
 
   // Discretization. ///////////////////////////////////////////////////////////
 
