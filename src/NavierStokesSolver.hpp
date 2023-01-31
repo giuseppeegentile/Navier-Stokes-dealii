@@ -675,6 +675,8 @@ protected:
   void
   assemble_system();
 
+  void lift_and_drag(int time);
+
   // Solve the tangent problem.
   void
   solve_system();
@@ -801,6 +803,8 @@ protected:
 
   // System solution at previous time step.
   TrilinosWrappers::MPI::BlockVector solution_old;
+
+  std::ofstream file2;
 };
 
 #endif

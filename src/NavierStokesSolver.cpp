@@ -217,7 +217,7 @@ NavierStokesSolver::assemble_system()
 
   inlet_velocity.set_time(time);
 
-  for (const auto &cell : dof_handler.active_cell_iterators())
+    for (const auto &cell : dof_handler.active_cell_iterators())
     {
       if (!cell->is_locally_owned())
         continue;
@@ -383,6 +383,85 @@ NavierStokesSolver::assemble_system()
       boundary_values, jacobian_matrix, delta_owned, residual_vector, false);
   }
 }
+
+void
+NavierStokesSolver::lift_and_drag(int step){
+  const int n_q_points = quadrature_face->size();
+
+  const FEValuesExtractors::Vector velocities(0);
+  const FEValuesExtractors::Scalar pressure(dim);
+  std::vector<double> pressure_values(n_q_points);
+
+  std::vector<Tensor<2, dim>> velocity_gradients(n_q_points);
+
+  Tensor<1,dim> normal_vector;
+  Tensor<2,dim> fluid_stress;
+  Tensor<2,dim> fluid_pressure;
+  Tensor<1,dim> forces;
+
+  FEFaceValues<dim> fe_face_values(*fe, *quadrature_face, 
+                                    update_values | update_quadrature_points | update_gradients 
+                                    | update_JxW_values | update_normal_vectors);
+
+  double drag = 0.0;
+  double lift = 0.0;
+
+
+  for (const auto &cell : dof_handler.active_cell_iterators()){
+    for(int face = 0; face < cell->n_faces(); face++){
+      if(cell->face(face)->at_boundary()){
+        fe_face_values.reinit(cell, face);
+        std::vector<Point<dim>> q_points = fe_face_values.get_quadrature_points();
+
+        if(cell->face(face)->boundary_id() == 11){
+          fe_face_values[velocities].get_function_gradients(solution, velocity_gradients);
+          fe_face_values[pressure].get_function_values(solution, pressure_values);
+
+          for(int q = 0; q < n_q_points; q++){
+            normal_vector = -fe_face_values.normal_vector(q);
+            fluid_pressure[0][0] = pressure_values[q];
+            fluid_pressure[1][1] = pressure_values[q];
+
+            fluid_stress = nu * velocity_gradients[q] - fluid_pressure;
+            forces = fluid_stress * normal_vector * fe_face_values.JxW(q);
+
+            drag += forces[0];
+            lift += forces[1];
+          }
+
+        }
+      }
+    }
+  }
+  //calculate pressure drop
+  Point<dim> p1, p2;
+  p1[0] = 0.15;
+  p1[1] = 0.2;
+  p2[0] = 0.25;
+  p2[1] = 0.2;
+  Vector<double> solution_values1(dim+1);
+  Vector<double> solution_values2(dim+1);
+  VectorTools::point_value(dof_handler, solution, p1, solution_values1);
+  VectorTools::point_value(dof_handler, solution, p2, solution_values2);
+  double p_diff = solution_values1(dim) - solution_values2(dim);
+
+  std::ofstream file("lift_and_drag-" + std::to_string(step) + ".csv");
+  file << time << ";";
+  file << 20.0 * drag << ";";
+  file << 20.0 * lift << ";" ;
+  file << p_diff << ";\n";
+
+  file.close();
+
+
+  file2 << time << ";";
+  file2 << 20.0 * drag << ";";
+  file2 << 20.0 * lift << ";" ;
+  file2 << p_diff << ";\n";
+
+
+}
+
 
 void
 NavierStokesSolver::assemble_stokes_system()
@@ -655,6 +734,7 @@ NavierStokesSolver::solve_newton()
           solution_owned += delta_owned;
           // solution_owned.add(0.5, delta_owned);
           solution = solution_owned;
+          
         }
       else
         {
@@ -663,7 +743,6 @@ NavierStokesSolver::solve_newton()
       
       // if (n_iter == 0 || n_iter == 1)
       //   output(1000 + n_iter, time);
-
       ++n_iter;
     }
 }
@@ -698,7 +777,7 @@ NavierStokesSolver::solve()
   }
 
   unsigned int time_step = 0;
-
+  file2.open("lift_drag_merge.csv");
   while (time < T - 0.5 * deltat)
     {
       time += deltat;
@@ -717,7 +796,11 @@ NavierStokesSolver::solve()
       output(time_step, time);
 
       pcout << std::endl;
+
+      lift_and_drag(time);
     }
+    file2.close();
+    
 }
 
 void
