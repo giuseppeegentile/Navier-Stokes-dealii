@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/NavStokes2D-0_03.msh");
+    std::ifstream grid_in_file("../mesh/NavStokes2D-0_1.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -258,7 +258,7 @@ NavierStokesSolver::assemble_system()
                                                       fe_values[velocity].gradient(j, q)) *
                                        fe_values.JxW(q);
 
-/*                   cell_matrix(i, j) +=rho*
+                  cell_matrix(i, j) +=rho*
                                     fe_values[velocity].value(j, q) *
                                     transpose(present_velocity_gradients[q]) * 
                                     fe_values[velocity].value(i, q) * 
@@ -268,7 +268,7 @@ NavierStokesSolver::assemble_system()
                                     present_velocity_values[q] * 
                                     transpose(fe_values[velocity].gradient(j, q)) *
                                     fe_values[velocity].value(i, q) * 
-                                    fe_values.JxW(q); */
+                                    fe_values.JxW(q);
 
                   // Pressure term in the momentum equation.
                   cell_matrix(i, j) -= fe_values[velocity].divergence(i, q) *
@@ -296,11 +296,11 @@ NavierStokesSolver::assemble_system()
                                                  fe_values[velocity].gradient(i, q)) *
                                   fe_values.JxW(q);
 
-/*               cell_residual(i) -= rho* 
+              cell_residual(i) -= rho* 
                                   present_velocity_values[q] * 
                                   transpose(present_velocity_gradients[q]) * 
                                   fe_values[velocity].value(i, q) * 
-                                  fe_values.JxW(q); */
+                                  fe_values.JxW(q);
 
               cell_residual(i) += present_pressure_values[q] *
                                   fe_values[velocity].divergence(i, q) *
@@ -570,21 +570,27 @@ NavierStokesSolver::solve_system()
 {
   pcout << "===============================================" << std::endl;
 
-  SolverControl solver_control(100000, 1e-10 * residual_vector.l2_norm());
+  SolverControl solver_control(100000, 1e-6 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
-  PreconditionIdentity preconditioner;
+  // PreconditionIdentity preconditioner;
 
   // PreconditionBlockDiagonal preconditioner;
   // preconditioner.initialize(jacobian_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1));
 
 
-/*   PreconditionBlockTriangular preconditioner;
+  PreconditionBlockTriangular preconditioner;
   preconditioner.initialize(jacobian_matrix.block(0, 0),
                             pressure_mass.block(1, 1),
-                            jacobian_matrix.block(1, 0)); */
+                            jacobian_matrix.block(1, 0));
+
+/*   PersonalizedPreconditioner preconditioner;
+  preconditioner.initialize(system_matrix.block(0,0),
+                            system_matrix.block(0,1),
+                            pressure_mass.block(1,1),
+                            nu,rho); */
 
   pcout << "Solving system..." << std::endl;
   solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 
@@ -596,7 +602,7 @@ void
 NavierStokesSolver::solve_newton()
 {
   const unsigned int n_max_iters        = 1000;
-  const double       residual_tolerance = 1e-10;
+  const double       residual_tolerance = 1e-8;
 
   unsigned int n_iter        = 0;
   double       residual_norm = residual_tolerance + 1;
@@ -745,7 +751,7 @@ NavierStokesSolver::output(const unsigned int &time_step, const double &time) co
   std::string output_file_name = std::to_string(time_step);
 
   // Pad with zeros.
-  output_file_name = "output-stokesTD-" + std::string(4 - output_file_name.size(), '0') +
+  output_file_name = "output-nsTD-" + std::string(4 - output_file_name.size(), '0') +
                      output_file_name;
 
   DataOutBase::DataOutFilter data_filter(

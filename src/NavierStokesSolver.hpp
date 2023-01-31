@@ -477,7 +477,7 @@ public:
 
   protected:
     // 2D-2 test case.
-    const double u_m = 0.3;
+    const double u_m = 1.5;
     // 2D-3 test case.
     // const double u_m = 1.5;
     const double H = 0.41;
@@ -604,9 +604,9 @@ public:
     vmult(TrilinosWrappers::MPI::BlockVector &      dst,
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
-      SolverControl                           solver_control_velocity(2000,
+      SolverControl                           solver_control_velocity(10000,
                                             1e-2 * src.block(0).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
       solver_cg_velocity.solve(*velocity_stiffness,
                                dst.block(0),
@@ -617,7 +617,7 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      SolverControl                           solver_control_pressure(2000,
+      SolverControl                           solver_control_pressure(10000,
                                             1e-2 * src.block(1).l2_norm());
       SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
