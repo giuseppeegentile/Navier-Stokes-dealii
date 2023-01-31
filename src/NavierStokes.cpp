@@ -13,7 +13,7 @@ NavierStokes::setup()
     grid_in.attach_triangulation(mesh_serial);
 
     const std::string mesh_file_name =
-      "../mesh/NavStokes2D-0_1.msh";
+      "../mesh/NavStokes2D-0_03.msh";
 
     std::ifstream grid_in_file(mesh_file_name);
     grid_in.read_msh(grid_in_file);
@@ -279,11 +279,11 @@ NavierStokes::assemble_system()
                                               fe_values[velocity].gradient(i, q)) 
                                 * fe_values.JxW(q);
 
-/*               cell_matrix(i, j) +=rho*
-                                present_velocity_gradients[q] * 
-                                fe_values[velocity].value(j, q) * 
+              cell_matrix(i, j) +=rho*
+                                fe_values[velocity].value(j, q) *
+                                transpose(present_velocity_gradients[q]) * 
                                 fe_values[velocity].value(i, q) * 
-                                fe_values.JxW(q); */
+                                fe_values.JxW(q);
 
               cell_matrix(i, j) +=rho* 
                                 present_velocity_values[q] * 
@@ -302,9 +302,9 @@ NavierStokes::assemble_system()
                                    fe_values.JxW(q);
 
               //Approssimation of Augmented Lagrangian term from tutorial
-              // cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
-              //                     fe_values[velocity].divergence(j,q) *
-              //                     fe_values.JxW(q);
+              cell_matrix(i,j) += fe_values[velocity].divergence(i,q) *
+                                  fe_values[velocity].divergence(j,q) *
+                                  fe_values.JxW(q);
 
               cell_pressure_mass_matrix(i, j) +=  fe_values[pressure].value(j, q) * 
                                                   fe_values[pressure].value(i, q) / nu *
@@ -339,9 +339,9 @@ NavierStokes::assemble_system()
                                   present_velocity_divergence * 
                                   fe_values.JxW(q);
               //Augmented Lagrandgian term for preconditioning
-              // cell_residual(i) -= present_velocity_divergence *
-              //                     fe_values[velocity].divergence(i,q)*
-              //                     fe_values.JxW(q);
+              cell_residual(i) -= present_velocity_divergence *
+                                  fe_values[velocity].divergence(i,q)*
+                                  fe_values.JxW(q);
           }
       }
 
@@ -418,25 +418,25 @@ NavierStokes::solve_system()
 {
   pcout << "===============================================" << std::endl;
 
-  ReductionControl solver_control(1000000, 1e-10, 1e-6 * residual_vector.l2_norm());
+  ReductionControl solver_control(50000, 1e-10, 1e-6 * residual_vector.l2_norm());
 
   SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
-  // PreconditionBlockDiagonal preconditioner;
-  // preconditioner.initialize(stiffness_matrix.block(0,0),
-  //                           pressure_mass.block(1, 1));
+/*   PreconditionBlockDiagonal preconditioner;
+  preconditioner.initialize(stiffness_matrix.block(0,0),
+                            pressure_mass.block(1, 1)); */
 
 /*   PreconditionBlockTriangular preconditioner;
   preconditioner.initialize(system_matrix.block(0, 0),
                              pressure_mass.block(1, 1),
                              system_matrix.block(1, 0)); */
     
-  PreconditionBlockIdentity preconditioner;
-  // PersonalizedPreconditioner preconditioner;
-  // preconditioner.initialize(system_matrix.block(0,0),
-  //                           system_matrix.block(0,1),72
-  //                           pressure_mass.block(1,1),
-  //                           nu,rho);
+  // PreconditionBlockIdentity preconditioner;
+  PersonalizedPreconditioner preconditioner;
+  preconditioner.initialize(system_matrix.block(0,0),
+                            system_matrix.block(0,1),
+                            pressure_mass.block(1,1),
+                            nu,rho);
 
   pcout << "Solving the linear system" << std::endl;
   solver.solve(system_matrix, delta_owned, residual_vector, preconditioner);

@@ -258,17 +258,17 @@ NavierStokesSolver::assemble_system()
                                                       fe_values[velocity].gradient(j, q)) *
                                        fe_values.JxW(q);
 
-/*                   cell_matrix(i, j) += rho *
-                                       present_velocity_gradients[q] *
-                                       fe_values[velocity].value(j, q) *
-                                       fe_values[velocity].value(i, q) *
-                                       fe_values.JxW(q);
+                  cell_matrix(i, j) +=rho*
+                                    fe_values[velocity].value(j, q) *
+                                    transpose(present_velocity_gradients[q]) * 
+                                    fe_values[velocity].value(i, q) * 
+                                    fe_values.JxW(q);
 
-                  cell_matrix(i, j) += rho *
-                                       present_velocity_values[q] *
-                                       fe_values[velocity].gradient(j, q) *
-                                       fe_values[velocity].value(i, q) *
-                                       fe_values.JxW(q); */
+                  cell_matrix(i, j) +=rho* 
+                                    present_velocity_values[q] * 
+                                    transpose(fe_values[velocity].gradient(j, q)) *
+                                    fe_values[velocity].value(i, q) * 
+                                    fe_values.JxW(q);
 
                   // Pressure term in the momentum equation.
                   cell_matrix(i, j) -= fe_values[velocity].divergence(i, q) *
@@ -296,11 +296,11 @@ NavierStokesSolver::assemble_system()
                                                  fe_values[velocity].gradient(i, q)) *
                                   fe_values.JxW(q);
 
-/*               cell_residual(i) -= rho *
-                                  present_velocity_values[q] *
-                                  present_velocity_gradients[q] *
-                                  fe_values[velocity].value(i, q) *
-                                  fe_values.JxW(q); */
+              cell_residual(i) -= rho* 
+                                  present_velocity_values[q] * 
+                                  transpose(present_velocity_gradients[q]) * 
+                                  fe_values[velocity].value(i, q) * 
+                                  fe_values.JxW(q);
 
               cell_residual(i) += present_pressure_values[q] *
                                   fe_values[velocity].divergence(i, q) *
@@ -572,19 +572,19 @@ NavierStokesSolver::solve_system()
 
   SolverControl solver_control(100000, 1e-6 * residual_vector.l2_norm());
 
-  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
-  // PreconditionIdentity preconditioner;
+  PreconditionIdentity preconditioner;
 
   // PreconditionBlockDiagonal preconditioner;
   // preconditioner.initialize(jacobian_matrix.block(0, 0),
   //                           pressure_mass.block(1, 1));
 
 
-  PreconditionBlockTriangular preconditioner;
+/*   PreconditionBlockTriangular preconditioner;
   preconditioner.initialize(jacobian_matrix.block(0, 0),
                             pressure_mass.block(1, 1),
-                            jacobian_matrix.block(1, 0));
+                            jacobian_matrix.block(1, 0)); */
 
   pcout << "Solving system..." << std::endl;
   solver.solve(jacobian_matrix, delta_owned, residual_vector, preconditioner); 

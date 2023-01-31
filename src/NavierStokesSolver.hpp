@@ -479,7 +479,7 @@ public:
     // 2D-2 test case.
     // const double u_m = 0.3;
     // 2D-3 test case.
-    const double u_m = 1.5;
+    const double u_m = 0.015;
     const double H = 0.41;
   };
 
@@ -715,7 +715,7 @@ protected:
   const double rho = 1;
 
   // Outlet pressure [Pa].
-  const double p_out = 10;
+  const double p_out = 0;
 
   // Forcing term.
   ForcingTerm forcing_term;

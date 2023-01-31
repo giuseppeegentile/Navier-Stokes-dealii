@@ -330,7 +330,7 @@ public:
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      SolverControl solver_control_A(10000, 1e-6 * u_tmp.l2_norm());
+      SolverControl solver_control_A(100000, 1e-6 * u_tmp.l2_norm());
       //TrilinosWrappers::SolverDirect solver(solver_control_A);
       //PreconditionIdentity preconditioner;
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
