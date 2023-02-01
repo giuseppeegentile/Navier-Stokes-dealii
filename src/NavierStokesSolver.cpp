@@ -420,7 +420,11 @@ NavierStokesSolver::lift_and_drag(){
 
   for (const auto &cell : dof_handler.active_cell_iterators()){
     for(int face = 0; face < cell->n_faces(); face++){
-      if(cell->face(face)->at_boundary() && cell->face(face)->boundary_id() == 11){
+      if(cell->face(face)->at_boundary()){
+        fe_face_values.reinit(cell, face);
+        std::vector<Point<dim>> q_points = fe_face_values.get_quadrature_points();
+
+        if(cell->face(face)->boundary_id() == 11){
           fe_face_values[velocities].get_function_gradients(solution, velocity_gradients);
           fe_face_values[pressure].get_function_values(solution, pressure_values);
 
@@ -439,6 +443,7 @@ NavierStokesSolver::lift_and_drag(){
         }
       }
     }
+  }
   //calculate pressure drop
   Point<dim> p1, p2;
   p1[0] = 0.15;
@@ -456,6 +461,8 @@ NavierStokesSolver::lift_and_drag(){
   file2 << 20.0 * drag << ";";
   file2 << 20.0 * lift << ";" ;
   file2 << p_diff << ";" << std::endl;
+
+
 }
 
 void

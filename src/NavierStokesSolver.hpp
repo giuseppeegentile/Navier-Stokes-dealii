@@ -419,7 +419,7 @@ protected:
   // Problem definition. ///////////////////////////////////////////////////////
 
   // Kinematic viscosity [m2/s].
-  const double nu = 0.001;
+  const double nu = 0.0002;
 
   // Fluid density [kg/m3].
   const double rho = 1;
