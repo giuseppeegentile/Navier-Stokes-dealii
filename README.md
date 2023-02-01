@@ -33,9 +33,27 @@ The continuity equation residual is as written in the linearized system.
 
 We then assemble a linearized system of the form:
 
+<<<<<<< HEAD
 $J_{r} (u,p) \delta = - r(u)$
 
 $J_{r}$ is the jacobian of the residual composed of four elements: the frechet derivative of the first and second equation residual with respect to $ u $ and $ p $.
 \delta is a vector composed of  $\delta_{u}$ and $\delta_{p}$ and $ -r(u)$ is the vector of the two equations residual.
 
 The system is solved in order to obtain $\delta$ and use it to update our $u^k$ and $p^k$ until a stop criterion is met.
+=======
+$J_{r} (u^{k,n},p^{k,n}) \delta = - r(u)$
+
+$J_{r}$ is the jacobian of the residual composed of four elements: the frechet derivative of the first and second equation residual with respect to $u$ and $p$.
+\delta is a vector composed of  $\delta_{u}$ and $\delta_{p}$ and $-r(u)$ is the vector of the two equations residual.
+
+$\begin{bmatrix} A & B^{T} \\ B & 0\end{bmatrix} \begin{bmatrix} \delta_{u} \\ \delta_{p} \end{bmatrix} = \begin{bmatrix} -R_{1} \\ -R_{2} \end{bmatrix}$
+
+where
+
+$A_{i,j}=\int\limits_\Omega\phi_{i}\frac{\phi_{j}}{\bigtriangleup{t}}+\int\limits_\Omega\rho\nu\nabla{\phi_{i}}\nabla{\phi_{j}} +\int\limits_\Omega\rho\phi_{i}\nabla{u^{k}}\phi_{j} + \int\limits_\Omega\rho u^{k} \nabla{\phi_{i}}\phi_{j}$
+
+$B_{i,j}=-\int\limits_\Omega\psi_{i}\nabla\cdot\phi{j}$
+
+and $R_{1}$ and $R_{2}$ are the residual of the first and second equation
+The system is solved in order to obtain $\delta$ and use it to update our $u^k$ and $p^k$ until a stop criterion is met.
+>>>>>>> release
