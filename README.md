@@ -19,7 +19,7 @@ The $\rho\frac{\partial{u}}{\partial{t}}$ term disappears in the steady case.
 
 Our weak formulation reads:
 
-$\int\limits_\Omega\frac{u^{n+1} - u^n}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{u} : \nabla{v}  +\int\limits_\Omega \rho u (\nabla{u}) v - \int\limits_\Omega \rho \nabla\cdot v  = \int\limits_\Omega fv + \int\limits_\Omega -p_{out}n v$
+$\int\limits_\Omega\frac{u^{n+1} - u^n}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{u^{n+1}} : \nabla{v}  +\int\limits_\Omega \rho u^{n+1} (\nabla{u^{n+1}}) v - \int\limits_\Omega \rho \nabla\cdot v  = \int\limits_\Omega fv + \int\limits_\Omega -p_{out}n v$
 
 $\int\limits_\Omega q \nabla\cdot u=0$
 
