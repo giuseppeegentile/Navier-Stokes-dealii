@@ -39,9 +39,10 @@ The continuity equation residual is as written in the linearized system.
 
 We then assemble a linearized system of the form:
 
-$J_{r} (u,p) \delta = - r(u)$
+$J_{r} (u^{k,n},p^{k,n}) \delta = - r(u)$
 
 $J_{r}$ is the jacobian of the residual composed of four elements: the frechet derivative of the first and second equation residual with respect to $u$ and $p$.
 \delta is a vector composed of  $\delta_{u}$ and $\delta_{p}$ and $-r(u)$ is the vector of the two equations residual.
+$\begin{amatrix} A B^{T} \\ B 0\end{amatrix} \begin{bmatrix} \delta_{u} \\ \delta_{p} \end{bmatrix} = $
 
 The system is solved in order to obtain $\delta$ and use it to update our $u^k$ and $p^k$ until a stop criterion is met.
