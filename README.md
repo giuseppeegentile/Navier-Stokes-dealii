@@ -33,7 +33,7 @@ $\ \int\limits_\Omega q \nabla\cdot\delta_{u} = -\int\limits_\Omega q \nabla\cdo
 where $u^k$ and $p^k$ are the values of velocity and pressure at the current step, $\delta_u$ and $ \delta_p$ are the increment of the velocity and pressure guesses, and $v$ and $q$ are the test functions.
 $R(u^k,p^k)(v,q)$ is the momentum equation residual in weak formulation, evaluated in $u^k$ and $p^k$:
 
-$R(u^{k,n},p^{k,n})(v,q) =\int\limits_\Omega\frac{\partial{u}}{\partial{t}}v + \int\limits_\Omega \nu \rho \nabla{u^{k,n}} : \nabla{v} + \int\limits_\Omega \rho u^{k,n} \nabla{u^{k,n}} v - \int\limits_\Omega \rho \nabla\cdot v -\int\limits_\Omega f\cdot v - \int\limits_{\Gamma_{out}} -\rho_{out} n v $
+$R(u^{k,n},p^{k,n})(v,q) =\int\limits_\Omega\frac{\partial{u}}{\partial{t}}v + \int\limits_\Omega \nu \rho \nabla{u^{k,n}} : \nabla{v} + \int\limits_\Omega \rho u^{k,n} \nabla{u^{k,n}} v - \int\limits_\Omega p^{k,n} \nabla\cdot v -\int\limits_\Omega f\cdot v - \int\limits_{\Gamma_{out}} -\rho_{out} n v $
 
 The continuity equation residual is as written in the linearized system.
 
