@@ -19,16 +19,16 @@ The $\rho\frac{\partial{u}}{\partial{t}}$ term disappears in the steady case.
 
 Our weak formulation reads:
 
-$\int\limits_\Omega\frac{u^{n+1} - u^n}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{u^{n+1}} : \nabla{v}  +\int\limits_\Omega \rho u^{n+1} (\nabla{u^{n+1}}) v - \int\limits_\Omega \rho \nabla\cdot v  = \int\limits_\Omega fv + \int\limits_\Omega -p_{out}n v$
+$\int\limits_\Omega\frac{u^{n+1} - u^n}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{u^{n+1}} : \nabla{v}  +\int\limits_\Omega \rho u^{n+1} (\nabla{u^{n+1}}) v - \int\limits_\Omega p \nabla\cdot v  = \int\limits_\Omega fv + \int\limits_\Omega -p_{out}n v$
 
 $\int\limits_\Omega q \nabla\cdot u^{n+1}=0$
 
 Our approach was to linearize this system and solve it through the Newton method, using as initial guess the solution of the Stokes problem in the same domain.
 Our linearized system reads like this:
 
-$\int\limits_\Omega\frac{\partial{\delta_{u}}}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{\delta_{u}} : \nabla{v}  +\int\limits_\Omega \rho u^k \nabla{\delta_{u}} v + \int\limits_\Omega \rho \delta_{u} \nabla{u^k} v + \int\limits_\Omega \delta_{p} \nabla\cdot v = - R(u^k,p^k)(v,q)$
+$\int\limits_\Omega\frac{\partial{\delta_{u}}}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{\delta_{u}} : \nabla{v}  +\int\limits_\Omega \rho u^{k,n} \nabla{\delta_{u}} v + \int\limits_\Omega \rho \delta_{u} \nabla{u^{k,n}} v + \int\limits_\Omega \delta_{p} \nabla\cdot v = - R(u^{k,n},p^{k,n})(v,q)$
 
-$\ \int\limits_\Omega q \nabla\cdot\delta_{u} = -\int\limits_\Omega q \nabla\cdot u^k $
+$\ \int\limits_\Omega q \nabla\cdot\delta_{u} = -\int\limits_\Omega q \nabla\cdot u^{k,n} $
 
 where $u^k$ and $p^k$ are the values of velocity and pressure at the current step, $\delta_u$ and $ \delta_p$ are the increment of the velocity and pressure guesses, and $v$ and $q$ are the test functions.
 $R(u^k,p^k)(v,q)$ is the momentum equation residual in weak formulation, evaluated in $u^k$ and $p^k$:
