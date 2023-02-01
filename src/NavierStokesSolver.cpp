@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/NavStokes2D-0_03.msh");
+    std::ifstream grid_in_file("../mesh/NavStokes2D-0_0025.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -395,68 +395,68 @@ NavierStokesSolver::assemble_system()
 }
 
 
-void
-NavierStokesSolver::lift_and_drag(){
-  const int n_q_points = quadrature_face->size();
+// void
+// NavierStokesSolver::lift_and_drag(){
+//   const int n_q_points = quadrature_face->size();
 
-  const FEValuesExtractors::Vector velocities(0);
-  const FEValuesExtractors::Scalar pressure(dim);
-  std::vector<double> pressure_values(n_q_points);
+//   const FEValuesExtractors::Vector velocities(0);
+//   const FEValuesExtractors::Scalar pressure(dim);
+//   std::vector<double> pressure_values(n_q_points);
 
-  std::vector<Tensor<2, dim>> velocity_gradients(n_q_points);
+//   std::vector<Tensor<2, dim>> velocity_gradients(n_q_points);
 
-  Tensor<1,dim> normal_vector;
-  Tensor<2,dim> fluid_stress;
-  Tensor<2,dim> fluid_pressure;
-  Tensor<1,dim> forces;
+//   Tensor<1,dim> normal_vector;
+//   Tensor<2,dim> fluid_stress;
+//   Tensor<2,dim> fluid_pressure;
+//   Tensor<1,dim> forces;
 
-  FEFaceValues<dim> fe_face_values(*fe, *quadrature_face, 
-                                    update_values | update_quadrature_points | update_gradients 
-                                    | update_JxW_values | update_normal_vectors);
+//   FEFaceValues<dim> fe_face_values(*fe, *quadrature_face, 
+//                                     update_values | update_quadrature_points | update_gradients 
+//                                     | update_JxW_values | update_normal_vectors);
 
-  double drag = 0.0;
-  double lift = 0.0;
-
-
-  for (const auto &cell : dof_handler.active_cell_iterators()){
-    for(int face = 0; face < cell->n_faces(); face++){
-      if(cell->face(face)->at_boundary() && cell->face(face)->boundary_id() == 11){
-          fe_face_values[velocities].get_function_gradients(solution, velocity_gradients);
-          fe_face_values[pressure].get_function_values(solution, pressure_values);
-
-          for(int q = 0; q < n_q_points; q++){
-            normal_vector = -fe_face_values.normal_vector(q);
-            fluid_pressure[0][0] = pressure_values[q];
-            fluid_pressure[1][1] = pressure_values[q];
-
-            fluid_stress = nu * velocity_gradients[q] - fluid_pressure;
-            forces = fluid_stress * normal_vector * fe_face_values.JxW(q);
-
-            drag += forces[0];
-            lift += forces[1];
-          }
-
-        }
-      }
-    }
-  //calculate pressure drop
-  Point<dim> p1, p2;
-  p1[0] = 0.15;
-  p1[1] = 0.2;
-  p2[0] = 0.25;
-  p2[1] = 0.2;
-  Vector<double> solution_values1(dim+1);
-  Vector<double> solution_values2(dim+1);
-  VectorTools::point_value(dof_handler, solution, p1, solution_values1);
-  VectorTools::point_value(dof_handler, solution, p2, solution_values2);
-  double p_diff = solution_values1(dim) - solution_values2(dim);
+//   double drag = 0.0;
+//   double lift = 0.0;
 
 
-  file2 << time << ";";
-  file2 << 20.0 * drag << ";";
-  file2 << 20.0 * lift << ";" ;
-  file2 << p_diff << ";" << std::endl;
-}
+//   for (const auto &cell : dof_handler.active_cell_iterators()){
+//     for(int face = 0; face < cell->n_faces(); face++){
+//       if(cell->face(face)->at_boundary() && cell->face(face)->boundary_id() == 11){
+//           fe_face_values[velocities].get_function_gradients(solution, velocity_gradients);
+//           fe_face_values[pressure].get_function_values(solution, pressure_values);
+
+//           for(int q = 0; q < n_q_points; q++){
+//             normal_vector = -fe_face_values.normal_vector(q);
+//             fluid_pressure[0][0] = pressure_values[q];
+//             fluid_pressure[1][1] = pressure_values[q];
+
+//             fluid_stress = nu * velocity_gradients[q] - fluid_pressure;
+//             forces = fluid_stress * normal_vector * fe_face_values.JxW(q);
+
+//             drag += forces[0];
+//             lift += forces[1];
+//           }
+
+//         }
+//       }
+//     }
+//   //calculate pressure drop
+//   Point<dim> p1, p2;
+//   p1[0] = 0.15;
+//   p1[1] = 0.2;
+//   p2[0] = 0.25;
+//   p2[1] = 0.2;
+//   Vector<double> solution_values1(dim+1);
+//   Vector<double> solution_values2(dim+1);
+//   VectorTools::point_value(dof_handler, solution, p1, solution_values1);
+//   VectorTools::point_value(dof_handler, solution, p2, solution_values2);
+//   double p_diff = solution_values1(dim) - solution_values2(dim);
+
+
+//   file2 << time << ";";
+//   file2 << 20.0 * drag << ";";
+//   file2 << 20.0 * lift << ";" ;
+//   file2 << p_diff << ";" << std::endl;
+// }
 
 void
 NavierStokesSolver::solve_system()
@@ -595,9 +595,9 @@ NavierStokesSolver::solve()
       output(time_step, time);
 
       pcout << std::endl;
-      lift_and_drag();
+     // lift_and_drag();
     }
-    file2.close();
+    //file2.close();
 }
 
 void

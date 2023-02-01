@@ -374,7 +374,7 @@ public:
     , degree_pressure(degree_pressure_)
     , mesh(MPI_COMM_WORLD)
   {
-    file2.open("../output/lift_&_drag.csv", std::ios::app);
+   // file2.open("../output/lift_&_drag.csv", std::ios::app);
 
   }
 
@@ -395,15 +395,15 @@ protected:
   void
   solve_system();
 
-  void lift_and_drag();
+  //void lift_and_drag();
 
   // Solve the problem for one time step using Newton's method.
   void
   solve_newton();
 
   // Output results.
-  void
-  output(const unsigned int &time_step, const double &time) const;
+  // void
+  // output(const unsigned int &time_step, const double &time) const;
 
   // MPI parallel. /////////////////////////////////////////////////////////////
 
@@ -514,7 +514,7 @@ protected:
   // System solution at previous time step.
   TrilinosWrappers::MPI::BlockVector solution_old;
 
-  std::ofstream file2;
+  //std::ofstream file2;
 };
 
 #endif
