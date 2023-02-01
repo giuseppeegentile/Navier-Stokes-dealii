@@ -12,7 +12,7 @@ NavierStokesSolver::setup()
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(mesh_serial);
 
-    std::ifstream grid_in_file("../mesh/NavStokes2D-0_1.msh");
+    std::ifstream grid_in_file("../mesh/NavStokes2D-0_03.msh");
     grid_in.read_msh(grid_in_file);
 
     GridTools::partition_triangulation(mpi_size, mesh_serial);
@@ -324,6 +324,7 @@ NavierStokesSolver::assemble_system()
               cell_residual(i) += scalar_product(forcing_term_tensor,
                                                  fe_values[velocity].value(i, q)) *
                                   fe_values.JxW(q);
+              
               cell_residual(i) -= present_velocity_divergence *
                     fe_values[velocity].divergence(i,q)*
                     fe_values.JxW(q);                                  
@@ -404,7 +405,7 @@ pcout << "===============================================" << std::endl;
 
   ReductionControl solver_control(50000, 1e-10, 1e-6 * residual_vector.l2_norm());
 
-  SolverGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
+  SolverFGMRES<TrilinosWrappers::MPI::BlockVector> solver(solver_control);
 
 /*   PreconditionBlockDiagonal preconditioner;
   preconditioner.initialize(stiffness_matrix.block(0,0),
@@ -503,16 +504,6 @@ NavierStokesSolver::solve()
 {
  pcout << "===============================================" << std::endl;
   
-  // // Search the initial condition (small Reynold's number).
-  // {
-  //   pcout << "Searching the initial condition" << std::endl;
-
-  //   assemble_stokes_system();
-  //   solve_stokes_system();
-  //   output("stokes");
-  //   pcout << "-----------------------------------------------" << std::endl;
-  // }
-
   const unsigned int n_max_iters        = 10000;
   const double       residual_tolerance = 1e-6;
 
@@ -620,108 +611,3 @@ NavierStokesSolver::output(const unsigned int &time_step, const double &time) co
                            MPI_COMM_WORLD);
 }
 
-/* void NavierStokesSolver::assemble_system() {
-
-      pcout << "===============================================" << std::endl;
-    pcout << "Assembling the system" << std::endl;
-
-    //clear the system matrix and rhs, because these change every iteration
-    // system_matrix.reinit(sparsity_pattern);
-    system_rhs.reinit(dof_handler.n_dofs());
-    const int dofs_per_cell = fe->dofs_per_cell;
-    const int n_q_points = quadrature->size();
-    const int n_q_points_face = quadrature_face->size();
-    std::vector<Tensor<1,dim> > previous_newton_velocity_values (n_q_points);
-    std::vector<Tensor< 2, dim> > previous_newton_velocity_gradients (n_q_points);
-    // std::vector<Vector<double> > rhs_values (n_q_points, Vector<double>(dim+1));
-    std::vector<Tensor<2,dim> > grad_phi_u(dofs_per_cell);
-    std::vector<double> div_phi_u(dofs_per_cell);
-    std::vector<double> phi_p(dofs_per_cell);
-    std::vector<Tensor<1,dim> > phi_u(dofs_per_cell);
-    Vector<double> cell_rhs(dofs_per_cell);
-    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-    const FEValuesExtractors::Vector velocities(0);
-    const FEValuesExtractors::Scalar pressure(dim);
-    FEValues<dim> fe_values(*fe, *quadrature, update_values |
-                                update_gradients | update_JxW_values | update_quadrature_points);
-    typename DoFHandler<dim>::active_cell_iterator
-    cell = dof_handler.begin_active(), endc = dof_handler.end();
-
-    for (; cell!=endc; ++cell) {
-        fe_values.reinit(cell);
-        cell_matrix = 0;
-        cell_rhs = 0;
-        //Calculate velocity values and gradients from previous newton iteration
-        //at each quadrature point in cell
-        fe_values[velocities].get_function_values(previous_newton_step,
-            previous_newton_velocity_values);
-        fe_values[velocities].get_function_gradients(previous_newton_step,
-            previous_newton_velocity_gradients);
-        // forcing_term.vector_value(fe_values.get_quadrature_points(), rhs_values);
-        //calculate cell contribution to system
-        for (int q = 0; q < n_q_points; q++) {
-          Vector<double> forcing_term_loc(dim);
-          forcing_term.vector_value(fe_values.quadrature_point(q),
-                                    forcing_term_loc);
-          Tensor<1, dim> forcing_term_tensor;
-          for (unsigned int d = 0; d < dim; ++d)
-            forcing_term_tensor[d] = forcing_term_loc[d];
-            for (int k=0; k<dofs_per_cell; k++) {
-                grad_phi_u[k] = fe_values[velocities].gradient (k, q);
-                div_phi_u[k] = fe_values[velocities].divergence (k, q);
-                phi_p[k] = fe_values[pressure].value (k, q);
-                phi_u[k] = fe_values[velocities].value (k, q);
-            }
-            for (int i = 0; i < dofs_per_cell; i++) {
-                for (int j = 0; j < dofs_per_cell; j++) {
-                    cell_matrix(i,j) +=
-                    (nu*scalar_product(grad_phi_u[i],grad_phi_u[j])
-                    + phi_u[j]
-                    *transpose(
-                    previous_newton_velocity_gradients[q])
-                    *phi_u[i]
-                    + previous_newton_velocity_values[q]
-                    *transpose(grad_phi_u[j])*phi_u[i]
-                    - phi_p[j]*div_phi_u[i]
-                    - phi_p[i]*div_phi_u[j])
-                    *fe_values.JxW(q);
-                }
-                int equation_i = fe->system_to_component_index(i).first;
-                cell_rhs(i) += (scalar_product(forcing_term_tensor, fe_values[velocities].value(i, q)) + previous_newton_velocity_values[q] *
-                                            transpose(previous_newton_velocity_gradients[q])*phi_u[i]) *fe_values.JxW(q);
-            }
-        }
-        cell->get_dof_indices(local_dof_indices);
-        //constraints.distribute_local_to_global(cell_matrix, cell_rhs, local_dof_indices, system_matrix, system_rhs);
-          system_matrix.compress(VectorOperation::add);
-        system_rhs.compress(VectorOperation::add);
-    }
-} */
-
-
-
-/* void NavierStokesSolver::run_newton_loop(int cycle) {
-    int MAX_ITER = 10;
-    double TOL = 1e-8;
-    int iter = 0;
-    double residual = 0;
-    //solve Stokes equations for initial guess
-    assemble_stokes_system();
-    solve();
-    previous_newton_step = solution;
-    while (iter == 0 || (residual > TOL && iter < MAX_ITER)) {
-        assemble_system();
-        solve();
-        TrilinosWrappers::MPI::BlockVector res_vec = solution;
-        res_vec -= previous_newton_step;
-        residual = res_vec.l2_norm()/(dof_handler.n_dofs());
-        previous_newton_step = solution;
-        iter++;
-        
-        pcout << "Residual = " << std::to_string(residual) << std::endl;
-    }
-    if (iter == MAX_ITER) {
-        pcout << "WARNING: Newton’s method failed to converge\n" << std::endl;
-    }
-} */

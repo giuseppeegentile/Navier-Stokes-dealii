@@ -315,7 +315,7 @@ public:
     {
       u_tmp=src.block(0);
       //computing  dst.block(1) that means S^-1 * xp
-      SolverControl solver_control_pressure(1000, 1e-6 * src.block(1).l2_norm());
+      SolverControl solver_control_pressure(1000, 1e-2 * src.block(1).l2_norm());
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(solver_control_pressure);
       
       dst.block(1) = 0.0;
@@ -330,7 +330,7 @@ public:
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      SolverControl solver_control_A(100000, 1e-6 * u_tmp.l2_norm());
+      SolverControl solver_control_A(100000, 1e-2 * u_tmp.l2_norm());
       //TrilinosWrappers::SolverDirect solver(solver_control_A);
       //PreconditionIdentity preconditioner;
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
@@ -420,7 +420,7 @@ protected:
   const double rho = 1;
 
   // Outlet pressure [Pa].
-  const double p_out = 0;
+  const double p_out = 10;
 
   // Forcing term.
   ForcingTerm forcing_term;
