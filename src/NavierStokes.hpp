@@ -98,30 +98,6 @@ public:
     const double g = 0.0;
   };
 
-
-  class WallVelocity : public Function<dim>
-  {
-    public:
-      WallVelocity()
-        : Function<dim>(dim + 1)
-      {}
-      virtual void
-      vector_value(const Point<dim> &p, Vector<double> &values) const override
-      {
-        if(p[0] < 1) values[0] =  0.1 * p[0];
-        else values[0] = 0.1;
-        for (unsigned int i = 1; i < dim + 1; ++i)
-          values[i] = 0.0;
-      }
-      virtual double
-      value(const Point<dim> &p, const unsigned int component = 0) const override
-      {
-        if (component == 0 && p[0] < 1) return 0.1 * p[0];
-        else if (component == 0 && p[0] >= 1) return 0.1;
-        return 0.0;
-      }
-  };
-
   // Function for inlet velocity. This actually returns an object with four
   // components (one for each velocity component, and one for the pressure), but
   // then only the first three are really used (see the component mask when
@@ -270,7 +246,7 @@ public:
     vmult(TrilinosWrappers::MPI::BlockVector &      dst,
           const TrilinosWrappers::MPI::BlockVector &src) const
     {
-      ReductionControl  solver_control_velocity(1000, 1e-3, 1e-2 *src.block(0).l2_norm());
+      ReductionControl  solver_control_velocity(1000, 1e-6 , 1e-2 *src.block(0).l2_norm());
 
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_velocity(
         solver_control_velocity);
@@ -283,8 +259,8 @@ public:
       B->vmult(tmp, dst.block(0));
       tmp.sadd(-1.0, src.block(1));
 
-      ReductionControl   solver_control_pressure(1000, 1e-3, 1e-2 * src.block(1).l2_norm());
-      SolverCG<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
+      ReductionControl   solver_control_pressure(1000, 1e-6, 1e-2 * src.block(1).l2_norm());
+      SolverGMRES<TrilinosWrappers::MPI::Vector> solver_cg_pressure(
         solver_control_pressure);
       solver_cg_pressure.solve(*pressure_mass,
                                dst.block(1),
@@ -354,7 +330,7 @@ public:
       u_tmp *= -1.0;
       u_tmp += src.block(0);
       
-      SolverControl solver_control_A(6000, 1e-2 * u_tmp.l2_norm());
+      SolverControl solver_control_A(10000, 1e-2 * u_tmp.l2_norm());
       //TrilinosWrappers::SolverDirect solver(solver_control_A);
       //PreconditionIdentity preconditioner;
       SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control_A);
@@ -514,8 +490,6 @@ protected:
   // Pressure mass matrix, needed for preconditioning the Stokes system. We use a block matrix for
   // convenience, but in practice we only look at the pressure-pressure block.
   TrilinosWrappers::BlockSparseMatrix stokes_pressure_mass;
-
-  WallVelocity wall_velocity;
 };
 
 #endif
