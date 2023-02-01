@@ -17,7 +17,11 @@ $\rho_{out}$ is the outlet pressure, $\rho$ is the density of the fluid, and $\n
 
 The $\rho\frac{\partial{u}}{\partial{t}}$ term disappears in the steady case.
 
+Our weak formulation reads:
+
 $\int\limits_\Omega\frac{u^{n+1} - u^n}{\bigtriangleup t}v +\int\limits_\Omega \rho \nu \nabla{u} : \nabla{v}  +\int\limits_\Omega \rho u (\nabla{u}) v - \int\limits_\Omega \rho \nabla\cdot v  = \int\limits_\Omega fv + \int\limits_\Omega -p_{out}n v$
+
+$\int\limits_\Omega q \nabla\cdot u=0$
 
 Our approach was to linearize this system and solve it through the Newton method, using as initial guess the solution of the Stokes problem in the same domain.
 Our linearized system reads like this:
