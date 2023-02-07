@@ -2,9 +2,9 @@
 Numerical Methods for Partial Differential Equation project @ Politecnico di Milano
 
 By:
-  [Giacomo Carugati](https://github.com/giacomo-carugati)
-  [Filippo Buda](https://github.com/filippobuda)
-  Giuseppe Gentile 
+  - [Giacomo Carugati](https://github.com/giacomo-carugati)
+  - [Filippo Buda](https://github.com/filippobuda)
+  - Giuseppe Gentile 
   
 ## Solver and simulate
 Flow past a cylinder simulating a tube with Reynolds number up to 200.
@@ -52,7 +52,7 @@ $\int\limits_\Omega\frac{\partial{\delta_{u}}}{\bigtriangleup t}v +\int\limits_\
 
 $\ \int\limits_\Omega q \nabla\cdot\delta_{u} = -\int\limits_\Omega q \nabla\cdot u^k $
 
-where $ u^k$ and $ p^k$ are the values of velocity and pressure at the current step, $ \delta_u $ and $ \delta_p $ are the increment of the velocity and pressure guesses, and $ v $ and $ q $ are the test functions.
+where $u^k$ and $p^k$ are the values of velocity and pressure at the current step, $ \delta_u $ and $ \delta_p $ are the increment of the velocity and pressure guesses, and $ v $ and $ q $ are the test functions.
 $ R(u^k,p^k)(v,q)$ is the momentum equation residual in weak formulation, evaluated in $ u^k $ and $ p^k $:
 
 $R(u^k,p^k)(v,q) =\int\limits_\Omega\frac{\partial{u}}{\partial{t}}v + \int\limits_\Omega \nu \rho \nabla{u^k} : \nabla{v} + \int\limits_\Omega \rho u^k \nabla{u^k} v - \int\limits_\Omega \rho \nabla\cdot v -\int\limits_\Omega f\cdot v - \int\limits_{\Gamma_{out}} -\rho_{out} n v $
@@ -64,7 +64,7 @@ We then assemble a linearized system of the form:
 $J_{r} (u,p) \delta = - r(u)$
 
 $J_{r}$ is the jacobian of the residual composed of four elements: the frechet derivative of the first and second equation residual with respect to $ u $ and $ p $.
-\delta is a vector composed of  $\delta_{u}$ and $\delta_{p}$ and $ -r(u)$ is the vector of the two equations residual.
+\delta is a vector composed of  $\delta_{u}$ and $\delta_{p}$ and $-r(u)$ is the vector of the two equations residual.
 
 The system is solved in order to obtain $\delta$ and use it to update our $u^k$ and $p^k$ until a stop criterion is met.
 =======
@@ -73,7 +73,7 @@ $J_{r} (u^{k,n},p^{k,n}) \delta = - r(u)$
 $J_{r}$ is the jacobian of the residual composed of four elements: the frechet derivative of the first and second equation residual with respect to $u$ and $p$.
 \delta is a vector composed of  $\delta_{u}$ and $\delta_{p}$ and $-r(u)$ is the vector of the two equations residual.
 
-$\begin{bmatrix} A & B^{T} \\ B & 0\end{bmatrix} \begin{bmatrix} \delta_{u} \\ \delta_{p} \end{bmatrix} = \begin{bmatrix} -R_{1} \\ -R_{2} \end{bmatrix}$
+$\begin{bmatrix}A & B^{T} \\ B & 0\end{bmatrix}\begin{bmatrix} \delta_{u} \\ \delta_{p} \end{bmatrix} = \begin{bmatrix} -R_{1} \\ -R_{2} \end{bmatrix}$
 
 where
 
